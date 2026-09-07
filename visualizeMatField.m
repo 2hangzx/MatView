@@ -46,6 +46,9 @@ function fig = visualizeMatField(matFile, variablePath, varargin)
 %   Array dimensions are deliberately labelled Dim 1/2/3. This avoids
 %   silently assuming that an *_IJK and an *_XYZ variable use identical
 %   physical-axis conventions.
+%   Volume mode adds an always-visible toolbar for rotate, pan, zoom-in,
+%   zoom-out and restore-view, plus the UIAxes hover tools. Default 3-D
+%   mouse interactions are also enabled.
 
     if nargin < 1
         error('visualizeMatField:MatFileRequired', ...
@@ -269,7 +272,8 @@ end
 function fig = prepareViewerFigure(existingFig, figName, defaultPosition, visible)
     if isempty(existingFig)
         fig = uifigure('Name', figName, 'Position', defaultPosition, ...
-            'Color', [0.97, 0.97, 0.98], 'Visible', visible);
+            'Color', [0.97, 0.97, 0.98], 'Visible', visible, ...
+            'ToolBar', 'figure');
     else
         if ~isvalid(existingFig)
             error('visualizeMatField:InvalidFigure', ...
@@ -279,6 +283,7 @@ function fig = prepareViewerFigure(existingFig, figName, defaultPosition, visibl
         delete(fig.Children);
         fig.Name = figName;
         fig.Color = [0.97, 0.97, 0.98];
+        fig.ToolBar = 'figure';
     end
 end
 
@@ -675,7 +680,7 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
     mainGrid = uigridlayout(fig, [2, 1]);
     mainGrid.RowHeight = {'1x', 84 + 34 * double(showModeControl) + ...
         42 * double(showVolumeControlRow)};
-    mainGrid.Padding = [12, 12, 12, 12];
+    mainGrid.Padding = [18, 18, 18, 18];
     mainGrid.RowSpacing = 8;
 
     ax = uiaxes(mainGrid);
@@ -687,6 +692,7 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
     colormap(ax, opts.Colormap);
     cb = colorbar(ax);
     cb.Label.String = 'Value';
+    [navigationToolbar, navigationTools] = createVolumeNavigationToolbar(fig);
 
     controlPanel = uipanel(mainGrid, 'Title', '三维等值面控制', ...
         'FontWeight', 'bold', 'BackgroundColor', [0.98, 0.98, 0.99]);
@@ -795,6 +801,7 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
 
     state = struct( ...
         'Data', volumeData, ...
+        'HasRendered', false, ...
         'Variable', opts.Variable, ...
         'PlotMode', 'volume', ...
         'Options', opts, ...
@@ -805,6 +812,12 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
         'IsoValues', opts.IsoValues, ...
         'SurfaceAlpha', opts.SurfaceAlpha, ...
         'Axes', ax, ...
+        'AxesToolbar', gobjects(0), ...
+        'ToolbarButtons', gobjects(0), ...
+        'NavigationToolbar', navigationToolbar, ...
+        'NavigationTools', navigationTools, ...
+        'ActiveNavigationMode', 'none', ...
+        'HomeNavigation', [], ...
         'Colorbar', cb, ...
         'SampleIndices', {sampleIndices}, ...
         'ModeDropDown', modeDropDown, ...
@@ -856,6 +869,163 @@ function changeSurfaceAlpha(fig, alphaValue)
 end
 
 
+function [toolbar, tools] = createVolumeNavigationToolbar(fig)
+    toolbar = uitoolbar(fig);
+
+    tools = struct();
+    tools.Rotate = uitoggletool(toolbar, 'Tooltip', '三维旋转', ...
+        'Separator', 'on', ...
+        'ClickedCallback', @(source, event) changeVolumeNavigationMode( ...
+            fig, source, 'rotate', event));
+    tools.Pan = uitoggletool(toolbar, 'Tooltip', '平移', ...
+        'ClickedCallback', @(source, event) changeVolumeNavigationMode( ...
+            fig, source, 'pan', event));
+    tools.ZoomIn = uipushtool(toolbar, 'Tooltip', '放大', ...
+        'ClickedCallback', @(source, event) zoomVolumeView( ...
+            fig, 1.20, source, event));
+    tools.ZoomOut = uipushtool(toolbar, 'Tooltip', '缩小', ...
+        'ClickedCallback', @(source, event) zoomVolumeView( ...
+            fig, 1 / 1.20, source, event));
+    tools.Restore = uipushtool(toolbar, 'Tooltip', '恢复初始视角', ...
+        'ClickedCallback', @(source, event) restoreVolumeView(fig, source, event));
+
+    setNavigationToolIcon(tools.Rotate, 'rotate3dUI.svg', 'rotate');
+    setNavigationToolIcon(tools.Pan, 'panUI.svg', 'pan');
+    setNavigationToolIcon(tools.ZoomIn, 'zoomInUI.svg', 'zoomin');
+    setNavigationToolIcon(tools.ZoomOut, 'zoomOutUI.svg', 'zoomout');
+    setNavigationToolIcon(tools.Restore, 'restoreViewUI.svg', 'restore');
+end
+
+
+function setNavigationToolIcon(tool, fileName, fallbackKind)
+    iconPath = fullfile(matlabroot, 'ui', 'icons', '24x24', fileName);
+    if isfile(iconPath)
+        tool.Icon = iconPath;
+    else
+        tool.CData = makeFallbackNavigationIcon(fallbackKind);
+    end
+end
+
+
+function icon = makeFallbackNavigationIcon(kind)
+    icon = repmat(reshape([0.94, 0.94, 0.94], 1, 1, 3), 16, 16);
+    inkColor = [0.16, 0.31, 0.48];
+    [column, row] = meshgrid(1:16, 1:16);
+    ink = false(16, 16);
+
+    switch kind
+        case 'rotate'
+            radius = hypot(column - 8.5, row - 8.5);
+            ink = abs(radius - 5) < 0.8;
+            ink(2:5, 10:13) = ink(2:5, 10:13) | tril(true(4));
+        case 'pan'
+            ink(3:14, 8:9) = true;
+            ink(8:9, 3:14) = true;
+            ink(2:4, 7:10) = true;
+            ink(13:15, 7:10) = true;
+            ink(7:10, 2:4) = true;
+            ink(7:10, 13:15) = true;
+        case {'zoomin', 'zoomout'}
+            radius = hypot(column - 6.5, row - 6.5);
+            ink = abs(radius - 4.2) < 0.8;
+            ink(10:14, 10:14) = ink(10:14, 10:14) | (eye(5) > 0);
+            ink(6:7, 4:9) = true;
+            if strcmp(kind, 'zoomin')
+                ink(4:9, 6:7) = true;
+            end
+        case 'restore'
+            ink(4:13, 4) = true;
+            ink(4:13, 13) = true;
+            ink(4, 4:13) = true;
+            ink(13, 4:13) = true;
+            ink(2:6, 2:6) = ink(2:6, 2:6) | triu(true(5));
+    end
+
+    for channel = 1:3
+        plane = icon(:, :, channel);
+        plane(ink) = inkColor(channel);
+        icon(:, :, channel) = plane;
+    end
+end
+
+
+function changeVolumeNavigationMode(fig, source, mode, ~)
+    if ~isvalid(fig)
+        return
+    end
+    state = fig.UserData;
+    if ~isstruct(state) || ~isfield(state, 'NavigationTools')
+        return
+    end
+
+    selected = strcmp(source.State, 'on');
+    toggleNames = {'Rotate', 'Pan'};
+    for index = 1:numel(toggleNames)
+        tool = state.NavigationTools.(toggleNames{index});
+        if isvalid(tool)
+            tool.State = 'off';
+        end
+    end
+
+    if selected
+        source.State = 'on';
+        state.ActiveNavigationMode = mode;
+    else
+        state.ActiveNavigationMode = 'none';
+    end
+    fig.UserData = state;
+    setAxesNavigationMode(state.Axes, state.ActiveNavigationMode);
+end
+
+
+function setAxesNavigationMode(ax, mode)
+    if isempty(ax) || ~isvalid(ax)
+        return
+    end
+
+    switch mode
+        case 'rotate'
+            ax.Interactions = rotateInteraction;
+        case 'pan'
+            ax.Interactions = panInteraction;
+        otherwise
+            enableDefaultInteractivity(ax);
+    end
+end
+
+
+function zoomVolumeView(fig, factor, ~, ~)
+    if ~isvalid(fig)
+        return
+    end
+    state = fig.UserData;
+    if isstruct(state) && isfield(state, 'Axes') && isvalid(state.Axes)
+        camzoom(state.Axes, factor);
+        drawnow limitrate
+    end
+end
+
+
+function restoreVolumeView(fig, ~, ~)
+    if ~isvalid(fig)
+        return
+    end
+    state = fig.UserData;
+    if ~isstruct(state) || ~isfield(state, 'HomeNavigation') || ...
+            isempty(state.HomeNavigation)
+        return
+    end
+
+    restoreAxesNavigation(state.Axes, state.HomeNavigation);
+    delete(findall(state.Axes, 'Type', 'light'));
+    if any(isgraphics(state.Patches))
+        camlight(state.Axes, 'headlight');
+        lighting(state.Axes, 'gouraud');
+    end
+    drawnow limitrate
+end
+
+
 function renderVolume(fig)
     if ~isvalid(fig)
         return
@@ -878,13 +1048,22 @@ function renderVolume(fig)
         surfaceAlpha = state.AlphaSlider.Value;
     end
 
+    if state.HasRendered
+        navigationState = captureAxesNavigation(state.Axes);
+    else
+        navigationState = [];
+    end
+
     valueSpan = diff(state.GlobalRange);
     cla(state.Axes);
     hold(state.Axes, 'on');
     state.Axes.CLim = state.ColorLimits;
+    iIndices = state.SampleIndices{1};
+    jIndices = state.SampleIndices{2};
+    kIndices = state.SampleIndices{3};
 
     if valueSpan == 0
-        text(state.Axes, 0.5, 0.5, 0.5, ...
+        text(state.Axes, mean(iIndices), mean(jIndices), mean(kIndices), ...
             sprintf('常量场：%s', formatNumber(state.GlobalRange(1))), ...
             'HorizontalAlignment', 'center', 'FontSize', 14);
         levels = state.GlobalRange(1);
@@ -897,9 +1076,6 @@ function renderVolume(fig)
             levels = linspace(levelBounds(1), levelBounds(2), count);
         end
 
-        iIndices = state.SampleIndices{1};
-        jIndices = state.SampleIndices{2};
-        kIndices = state.SampleIndices{3};
         sampled = state.Data(iIndices, jIndices, kIndices);
         sampled(~isfinite(sampled)) = NaN;
 
@@ -933,18 +1109,30 @@ function renderVolume(fig)
         end
     end
 
+    hold(state.Axes, 'off');
+    grid(state.Axes, 'on');
+    box(state.Axes, 'on');
+    state.Axes.XLim = makeSafeLimits([iIndices(1), iIndices(end)]);
+    state.Axes.YLim = makeSafeLimits([jIndices(1), jIndices(end)]);
+    state.Axes.ZLim = makeSafeLimits([kIndices(1), kIndices(end)]);
+    axis(state.Axes, 'vis3d');
+    daspect(state.Axes, [1, 1, 1]);
+    if state.HasRendered
+        restoreAxesNavigation(state.Axes, navigationState);
+    else
+        view(state.Axes, 42, 26);
+        % Let MATLAB fit the rotated box first, then pull the camera back a
+        % little farther so the title and tick labels remain inside UIAxes.
+        state.Axes.CameraViewAngleMode = 'auto';
+        drawnow limitrate nocallbacks
+        camzoom(state.Axes, 0.84);
+        axis(state.Axes, 'vis3d');
+    end
     delete(findall(state.Axes, 'Type', 'light'));
     if ~isempty(patches)
         camlight(state.Axes, 'headlight');
         lighting(state.Axes, 'gouraud');
     end
-    hold(state.Axes, 'off');
-    grid(state.Axes, 'on');
-    box(state.Axes, 'on');
-    axis(state.Axes, 'tight');
-    axis(state.Axes, 'vis3d');
-    daspect(state.Axes, [1, 1, 1]);
-    view(state.Axes, 42, 26);
     xlabel(state.Axes, 'Dim 1 index');
     ylabel(state.Axes, 'Dim 2 index');
     zlabel(state.Axes, 'Dim 3 index');
@@ -956,8 +1144,62 @@ function renderVolume(fig)
     state.IsoRange = isoRange;
     state.SurfaceAlpha = surfaceAlpha;
     state.Patches = patches;
+    state.HasRendered = true;
+    state = ensureVolumeInteractivity(state);
     fig.UserData = state;
     drawnow
+    if isempty(state.HomeNavigation)
+        % Capture the restore target only after the graphics flush; an
+        % invisible UIAxes can otherwise still report its default camera.
+        state.HomeNavigation = captureAxesNavigation(state.Axes);
+        fig.UserData = state;
+    end
+end
+
+
+function state = ensureVolumeInteractivity(state)
+    ax = state.Axes;
+
+    % The default toolbar of a newly created UIAxes has no concrete button
+    % objects. Because this axes only becomes 3-D after its first render,
+    % MATLAB can fail to materialize the 3-D toolbar. Create the tools
+    % explicitly after rendering, when the axes is already in a 3-D view.
+    if strcmp(state.ActiveNavigationMode, 'none')
+        enableDefaultInteractivity(ax);
+    else
+        setAxesNavigationMode(ax, state.ActiveNavigationMode);
+    end
+    if isempty(state.AxesToolbar) || ~isvalid(state.AxesToolbar)
+        [state.AxesToolbar, state.ToolbarButtons] = axtoolbar(ax, ...
+            {'rotate', 'pan', 'zoomin', 'zoomout', 'restoreview'});
+    end
+    state.AxesToolbar.Visible = 'on';
+    ax.Toolbar.Visible = 'on';
+end
+
+
+function navigationState = captureAxesNavigation(ax)
+    navigationState = struct( ...
+        'XLim', ax.XLim, ...
+        'YLim', ax.YLim, ...
+        'ZLim', ax.ZLim, ...
+        'CameraPosition', ax.CameraPosition, ...
+        'CameraTarget', ax.CameraTarget, ...
+        'CameraUpVector', ax.CameraUpVector, ...
+        'CameraViewAngle', ax.CameraViewAngle, ...
+        'Projection', ax.Projection);
+end
+
+
+function restoreAxesNavigation(ax, navigationState)
+    ax.XLim = navigationState.XLim;
+    ax.YLim = navigationState.YLim;
+    ax.ZLim = navigationState.ZLim;
+    ax.CameraPosition = navigationState.CameraPosition;
+    ax.CameraTarget = navigationState.CameraTarget;
+    ax.CameraUpVector = navigationState.CameraUpVector;
+    ax.CameraViewAngle = navigationState.CameraViewAngle;
+    ax.Projection = navigationState.Projection;
 end
 
 
