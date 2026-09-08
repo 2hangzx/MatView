@@ -559,6 +559,8 @@ function fig = prepareViewerFigure(existingFig, figName, defaultPosition, visibl
                 'The viewer figure was closed before its mode could be changed.');
         end
         fig = existingFig;
+        fig.SizeChangedFcn = [];
+        fig.AutoResizeChildren = 'on';
         stopViewerPlayback(fig, true);
         delete(fig.Children);
         fig.Name = figName;
@@ -577,7 +579,7 @@ function height = sourceSelectorHeight(opts)
 end
 
 
-function [filePathEdit, browseButton, variableDropDown] = ...
+function [filePathEdit, browseButton, variableDropDown, sourceLayout] = ...
         addSourceSelector(mainGrid, opts, currentVariable)
     showFileControl = ~opts.Specified.MatFile;
     rowCount = 1 + double(showFileControl);
@@ -591,6 +593,8 @@ function [filePathEdit, browseButton, variableDropDown] = ...
 
     filePathEdit = gobjects(0);
     browseButton = gobjects(0);
+    fileLabel = gobjects(0);
+    fileHint = gobjects(0);
     variableRow = 1;
     if showFileControl
         fileLabel = uilabel(selectorGrid, 'Text', 'MAT 文件', ...
@@ -655,6 +659,631 @@ function [filePathEdit, browseButton, variableDropDown] = ...
         'FontColor', [0.35, 0.35, 0.38]);
     selectorHint.Layout.Row = variableRow;
     selectorHint.Layout.Column = 4;
+
+    sourceLayout = struct( ...
+        'Grid', selectorGrid, ...
+        'ShowFileControl', showFileControl, ...
+        'FileLabel', fileLabel, ...
+        'FilePathEdit', filePathEdit, ...
+        'BrowseButton', browseButton, ...
+        'FileHint', fileHint, ...
+        'VariableLabel', selectorLabel, ...
+        'VariableDropDown', variableDropDown, ...
+        'VariableHint', selectorHint);
+end
+
+
+function sourceLayout = emptySourceLayout()
+    sourceLayout = struct( ...
+        'Grid', gobjects(0), ...
+        'ShowFileControl', false, ...
+        'FileLabel', gobjects(0), ...
+        'FilePathEdit', gobjects(0), ...
+        'BrowseButton', gobjects(0), ...
+        'FileHint', gobjects(0), ...
+        'VariableLabel', gobjects(0), ...
+        'VariableDropDown', gobjects(0), ...
+        'VariableHint', gobjects(0));
+end
+
+
+function shell = createViewerShell(fig, opts, currentVariable, panelTitle, ...
+        controlPanelHeight, showColorbar)
+    showSourceControl = isempty(currentVariable) || ...
+        ~opts.Specified.MatFile || ~opts.Specified.Variable;
+    rootPanel = uipanel(fig, 'BorderType', 'none', ...
+        'BackgroundColor', fig.Color, ...
+        'Position', [1, 1, fig.Position(3), fig.Position(4)]);
+    if showSourceControl
+        mainGrid = uigridlayout(rootPanel, [3, 1]);
+        mainGrid.RowHeight = {sourceSelectorHeight(opts), '1x', controlPanelHeight};
+        plotRow = 2;
+        controlRow = 3;
+        [filePathEdit, browseButton, variableDropDown, sourceLayout] = ...
+            addSourceSelector(mainGrid, opts, currentVariable);
+    else
+        mainGrid = uigridlayout(rootPanel, [2, 1]);
+        mainGrid.RowHeight = {'1x', controlPanelHeight};
+        plotRow = 1;
+        controlRow = 2;
+        filePathEdit = gobjects(0);
+        browseButton = gobjects(0);
+        variableDropDown = gobjects(0);
+        sourceLayout = emptySourceLayout();
+    end
+    mainGrid.Padding = [18, 18, 18, 18];
+    mainGrid.RowSpacing = 8;
+
+    plotGrid = uigridlayout(mainGrid, [1, 1]);
+    plotGrid.Layout.Row = plotRow;
+    plotGrid.RowSpacing = 0;
+    plotGrid.ColumnSpacing = 0;
+    if showColorbar
+        plotGrid.Padding = [0, 0, 132, 26];
+    else
+        plotGrid.Padding = [0, 0, 0, 0];
+    end
+    ax = uiaxes(plotGrid);
+    ax.Box = 'on';
+    ax.FontName = 'Consolas';
+    ax.FontSize = 12;
+    ax.Toolbar.Visible = 'on';
+    colormap(ax, opts.Colormap);
+
+    cb = gobjects(0);
+    if showColorbar
+        cb = colorbar(ax);
+        cb.Label.String = 'Value';
+    end
+
+    controlPanel = uipanel(mainGrid, 'Title', panelTitle, ...
+        'FontWeight', 'bold', 'BackgroundColor', [0.98, 0.98, 0.99], ...
+        'Scrollable', 'off');
+    controlPanel.Layout.Row = controlRow;
+
+    shell = struct( ...
+        'RootPanel', rootPanel, ...
+        'MainGrid', mainGrid, ...
+        'PlotGrid', plotGrid, ...
+        'Axes', ax, ...
+        'Colorbar', cb, ...
+        'ControlPanel', controlPanel, ...
+        'ControlPanelRow', controlRow, ...
+        'SourceLayout', sourceLayout, ...
+        'FilePathEdit', filePathEdit, ...
+        'BrowseButton', browseButton, ...
+        'VariableDropDown', variableDropDown, ...
+        'HasColorbar', showColorbar);
+end
+
+
+function layout = makeViewerLayout(shell, controlLayout, plotMode)
+    layout = struct( ...
+        'RootPanel', shell.RootPanel, ...
+        'MainGrid', shell.MainGrid, ...
+        'PlotGrid', shell.PlotGrid, ...
+        'ControlPanel', shell.ControlPanel, ...
+        'ControlPanelRow', shell.ControlPanelRow, ...
+        'Source', shell.SourceLayout, ...
+        'Control', controlLayout, ...
+        'PlotMode', plotMode, ...
+        'HasColorbar', shell.HasColorbar, ...
+        'Profile', '');
+end
+
+
+function enableResponsiveViewerLayout(fig)
+    if ~isvalid(fig)
+        return
+    end
+    fig.AutoResizeChildren = 'off';
+    fig.SizeChangedFcn = @(source, event) applyResponsiveViewerLayout(source);
+    applyResponsiveViewerLayout(fig, true);
+end
+
+
+function applyResponsiveViewerLayout(fig, forceReflow)
+    if ~isvalid(fig)
+        return
+    end
+    if nargin < 2
+        forceReflow = false;
+    end
+    state = fig.UserData;
+    if ~isstruct(state) || ~isfield(state, 'Layout') || ...
+            isempty(state.Layout) || ~isgraphics(state.Layout.MainGrid)
+        return
+    end
+
+    figureSize = fig.Position(3:4);
+    if figureSize(1) >= 1050
+        profile = 'wide';
+        outerPadding = 18;
+    elseif figureSize(1) >= 700
+        profile = 'compact';
+        outerPadding = 12;
+    else
+        profile = 'narrow';
+        outerPadding = 8;
+    end
+
+    layout = state.Layout;
+    layout.RootPanel.Position = [1, 1, figureSize];
+    layout.MainGrid.Padding = repmat(outerPadding, 1, 4);
+    if forceReflow || ~strcmp(layout.Profile, profile)
+        sourceHeight = applySourceSelectorLayout(layout.Source, profile);
+        switch layout.Control.Kind
+            case 'slice'
+                preferredControlHeight = applySliceControlLayout(layout.Control, profile);
+            case 'volume'
+                preferredControlHeight = applyVolumeControlLayout(layout.Control, profile, state);
+            otherwise
+                preferredControlHeight = currentGridPanelHeight(layout.Control.Grid);
+        end
+    else
+        sourceHeight = currentSourceSelectorHeight(layout.Source);
+        preferredControlHeight = currentGridPanelHeight(layout.Control.Grid);
+    end
+
+    if layout.HasColorbar
+        % The axes is still managed entirely by uigridlayout.  This stable
+        % gutter belongs to the plot region, so tick labels and the colorbar
+        % label cannot spill outside the figure when the window is resized.
+        layout.PlotGrid.Padding = [0, 0, 132, 26];
+    else
+        layout.PlotGrid.Padding = [0, 0, 0, 0];
+    end
+
+    numberOfGaps = 1 + double(sourceHeight > 0);
+    minimumPlotHeight = 220 * double(layout.HasColorbar) + ...
+        120 * double(~layout.HasColorbar);
+    availableForControls = figureSize(2) - 2 * outerPadding - ...
+        sourceHeight - minimumPlotHeight - numberOfGaps * layout.MainGrid.RowSpacing;
+    controlHeight = min(preferredControlHeight, max(120, availableForControls));
+    if sourceHeight > 0
+        layout.MainGrid.RowHeight = {sourceHeight, '1x', controlHeight};
+    else
+        layout.MainGrid.RowHeight = {'1x', controlHeight};
+    end
+
+    layout.Profile = profile;
+    state.Layout = layout;
+    fig.UserData = state;
+end
+
+
+function height = applySourceSelectorLayout(layout, profile)
+    if isempty(layout.Grid) || ~isgraphics(layout.Grid)
+        height = 0;
+        return
+    end
+    grid = layout.Grid;
+    if strcmp(profile, 'wide')
+        prepareGridColumns(grid, 4);
+        grid.ColumnWidth = {82, '2x', 86, '1x'};
+        if layout.ShowFileControl
+            grid.RowHeight = {32, 32};
+            setGridItemLayout(layout.FileLabel, 1, 1);
+            setGridItemLayout(layout.FilePathEdit, 1, 2);
+            setGridItemLayout(layout.BrowseButton, 1, 3);
+            setGridItemLayout(layout.FileHint, 1, 4);
+            variableRow = 2;
+        else
+            grid.RowHeight = {32};
+            variableRow = 1;
+        end
+        setGridItemLayout(layout.VariableLabel, variableRow, 1);
+        setGridItemLayout(layout.VariableDropDown, variableRow, [2, 3]);
+        setGridItemLayout(layout.VariableHint, variableRow, 4);
+    else
+        prepareGridColumns(grid, 3);
+        grid.ColumnWidth = {82, '1x', 86};
+        if layout.ShowFileControl
+            grid.RowHeight = {32, 26, 32, 26};
+            setGridItemLayout(layout.FileLabel, 1, 1);
+            setGridItemLayout(layout.FilePathEdit, 1, 2);
+            setGridItemLayout(layout.BrowseButton, 1, 3);
+            setGridItemLayout(layout.FileHint, 2, [2, 3]);
+            variableRow = 3;
+            variableHintRow = 4;
+        else
+            grid.RowHeight = {32, 26};
+            variableRow = 1;
+            variableHintRow = 2;
+        end
+        setGridItemLayout(layout.VariableLabel, variableRow, 1);
+        setGridItemLayout(layout.VariableDropDown, variableRow, [2, 3]);
+        setGridItemLayout(layout.VariableHint, variableHintRow, [2, 3]);
+    end
+    setLabelWordWrap(layout.FileHint, true);
+    setLabelWordWrap(layout.VariableHint, true);
+    height = sum(cell2mat(grid.RowHeight)) + grid.Padding(2) + ...
+        grid.Padding(4) + grid.RowSpacing * (numel(grid.RowHeight) - 1);
+end
+
+
+function height = applySliceControlLayout(layout, profile)
+    grid = layout.Grid;
+    showMode = hasGraphics(layout.ModeDropDown);
+    showDimension = hasGraphics(layout.DimensionDropDown);
+    showIndex = hasGraphics(layout.IndexSlider);
+    showColor = hasGraphics(layout.ColorDropDown);
+    showPlayback = hasGraphics(layout.PlayButton);
+
+    setLabelWordWrap(layout.ModeHint, true);
+    setLabelWordWrap(layout.PlaybackHint, true);
+    switch profile
+        case 'wide'
+            prepareGridColumns(grid, 14);
+            setGridItemLayout(layout.VariableLabel, 1, [1, 3]);
+            setGridItemLayout(layout.GlobalLabel, 1, [4, 7]);
+            setGridItemLayout(layout.SliceLabel, 1, [8, 14]);
+            setGridItemLayout(layout.ModeText, 2, 1);
+            setGridItemLayout(layout.ModeDropDown, 2, [2, 4]);
+            setGridItemLayout(layout.ModeHint, 2, [5, 14]);
+            setGridItemLayout(layout.DimensionText, 3, 1);
+            setGridItemLayout(layout.DimensionDropDown, 3, 2);
+            setGridItemLayout(layout.IndexText, 3, 3);
+            setGridItemLayout(layout.IndexSlider, 3, [4, 6]);
+            setGridItemLayout(layout.IndexEdit, 3, 7);
+            setGridItemLayout(layout.ColorText, 3, 9);
+            setGridItemLayout(layout.ColorDropDown, 3, 10);
+            setGridItemLayout(layout.ColorLowerText, 3, 11);
+            setGridItemLayout(layout.ColorLowerEdit, 3, 12);
+            setGridItemLayout(layout.ColorUpperText, 3, 13);
+            setGridItemLayout(layout.ColorUpperEdit, 3, 14);
+            setGridItemLayout(layout.ColorLowerSliderText, 4, [1, 2]);
+            setGridItemLayout(layout.ColorLowerSlider, 4, [3, 7]);
+            setGridItemLayout(layout.ColorUpperSliderText, 4, [8, 9]);
+            setGridItemLayout(layout.ColorUpperSlider, 4, [10, 14]);
+            setGridItemLayout(layout.PlaybackText, 5, 1);
+            setGridItemLayout(layout.PlayButton, 5, 2);
+            setGridItemLayout(layout.IntervalText, 5, 3);
+            setGridItemLayout(layout.PlaybackIntervalEdit, 5, 4);
+            setGridItemLayout(layout.PlaybackHint, 5, [5, 14]);
+            rowHeights = {28, 34 * double(showMode), ...
+                42 * double(showDimension || showIndex || showColor), ...
+                42 * double(showColor), 36 * double(showPlayback)};
+            grid.ColumnWidth = {62, 130, 42, '1x', '1x', '1x', ...
+                72, 16, 72, 120, 34, 80, 34, 80};
+        case 'compact'
+            prepareGridColumns(grid, 6);
+            row = 1;
+            setGridItemLayout(layout.VariableLabel, row, [1, 6]); row = row + 1;
+            setGridItemLayout(layout.GlobalLabel, row, [1, 6]); row = row + 1;
+            setGridItemLayout(layout.SliceLabel, row, [1, 6]); row = row + 1;
+            rowHeights = {28, 28, 28};
+            if showMode
+                setGridItemLayout(layout.ModeText, row, 1);
+                setGridItemLayout(layout.ModeDropDown, row, [2, 3]);
+                setGridItemLayout(layout.ModeHint, row, [4, 6]);
+                rowHeights{row} = 44; row = row + 1;
+            end
+            if showDimension || showIndex
+                setGridItemLayout(layout.DimensionText, row, 1);
+                setGridItemLayout(layout.DimensionDropDown, row, 2);
+                setGridItemLayout(layout.IndexText, row, 3);
+                setGridItemLayout(layout.IndexSlider, row, [4, 5]);
+                setGridItemLayout(layout.IndexEdit, row, 6);
+                rowHeights{row} = 42; row = row + 1;
+            end
+            if showColor
+                setGridItemLayout(layout.ColorText, row, 1);
+                setGridItemLayout(layout.ColorDropDown, row, 2);
+                setGridItemLayout(layout.ColorLowerText, row, 3);
+                setGridItemLayout(layout.ColorLowerEdit, row, 4);
+                setGridItemLayout(layout.ColorUpperText, row, 5);
+                setGridItemLayout(layout.ColorUpperEdit, row, 6);
+                rowHeights{row} = 38; row = row + 1;
+                setGridItemLayout(layout.ColorLowerSliderText, row, 1);
+                setGridItemLayout(layout.ColorLowerSlider, row, [2, 6]);
+                rowHeights{row} = 42; row = row + 1;
+                setGridItemLayout(layout.ColorUpperSliderText, row, 1);
+                setGridItemLayout(layout.ColorUpperSlider, row, [2, 6]);
+                rowHeights{row} = 42; row = row + 1;
+            end
+            if showPlayback
+                setGridItemLayout(layout.PlaybackText, row, 1);
+                setGridItemLayout(layout.PlayButton, row, 2);
+                setGridItemLayout(layout.IntervalText, row, 3);
+                setGridItemLayout(layout.PlaybackIntervalEdit, row, 4);
+                setGridItemLayout(layout.PlaybackHint, row, [5, 6]);
+                rowHeights{row} = 44;
+            end
+            grid.ColumnWidth = {82, 120, 72, '1x', 72, 86};
+        otherwise
+            prepareGridColumns(grid, 4);
+            row = 1;
+            setGridItemLayout(layout.VariableLabel, row, [1, 4]); row = row + 1;
+            setGridItemLayout(layout.GlobalLabel, row, [1, 4]); row = row + 1;
+            setGridItemLayout(layout.SliceLabel, row, [1, 4]); row = row + 1;
+            rowHeights = {28, 28, 28};
+            if showMode
+                setGridItemLayout(layout.ModeText, row, 1);
+                setGridItemLayout(layout.ModeDropDown, row, [2, 4]);
+                rowHeights{row} = 34; row = row + 1;
+                setGridItemLayout(layout.ModeHint, row, [1, 4]);
+                rowHeights{row} = 36; row = row + 1;
+            end
+            if showDimension
+                setGridItemLayout(layout.DimensionText, row, 1);
+                setGridItemLayout(layout.DimensionDropDown, row, [2, 4]);
+                rowHeights{row} = 34; row = row + 1;
+            end
+            if showIndex
+                setGridItemLayout(layout.IndexText, row, 1);
+                setGridItemLayout(layout.IndexSlider, row, [2, 3]);
+                setGridItemLayout(layout.IndexEdit, row, 4);
+                rowHeights{row} = 42; row = row + 1;
+            end
+            if showColor
+                setGridItemLayout(layout.ColorText, row, 1);
+                setGridItemLayout(layout.ColorDropDown, row, [2, 4]);
+                rowHeights{row} = 34; row = row + 1;
+                setGridItemLayout(layout.ColorLowerText, row, 1);
+                setGridItemLayout(layout.ColorLowerEdit, row, 2);
+                setGridItemLayout(layout.ColorUpperText, row, 3);
+                setGridItemLayout(layout.ColorUpperEdit, row, 4);
+                rowHeights{row} = 34; row = row + 1;
+                setGridItemLayout(layout.ColorLowerSliderText, row, 1);
+                setGridItemLayout(layout.ColorLowerSlider, row, [2, 4]);
+                rowHeights{row} = 42; row = row + 1;
+                setGridItemLayout(layout.ColorUpperSliderText, row, 1);
+                setGridItemLayout(layout.ColorUpperSlider, row, [2, 4]);
+                rowHeights{row} = 42; row = row + 1;
+            end
+            if showPlayback
+                setGridItemLayout(layout.PlaybackText, row, 1);
+                setGridItemLayout(layout.PlayButton, row, 2);
+                setGridItemLayout(layout.IntervalText, row, 3);
+                setGridItemLayout(layout.PlaybackIntervalEdit, row, 4);
+                rowHeights{row} = 34; row = row + 1;
+                setGridItemLayout(layout.PlaybackHint, row, [1, 4]);
+                rowHeights{row} = 36;
+            end
+            grid.ColumnWidth = {82, 120, '1x', 86};
+    end
+    grid.RowHeight = rowHeights;
+    height = preferredPanelHeight(grid, rowHeights);
+end
+
+
+function height = applyVolumeControlLayout(layout, profile, state)
+    grid = layout.Grid;
+    showMode = hasGraphics(layout.ModeDropDown);
+    showIsoMode = hasGraphics(layout.IsoModeDropDown);
+    showCount = hasGraphics(layout.CountSpinner);
+    showRange = hasGraphics(layout.LowerEdit);
+    showExact = hasGraphics(layout.ExactValueSlider);
+    showAlpha = hasGraphics(layout.AlphaSlider);
+    showPlayback = hasGraphics(layout.PlayButton) && ...
+        strcmp(layout.PlayButton.Visible, 'on');
+    isoSelectionMode = 'automatic';
+    if isfield(state, 'IsoSelectionMode')
+        isoSelectionMode = state.IsoSelectionMode;
+    end
+    isSingle = strcmp(isoSelectionMode, 'single');
+
+    setLabelWordWrap(layout.ModeHint, true);
+    setLabelWordWrap(layout.IsoModeHint, true);
+    setLabelWordWrap(layout.PlaybackHint, true);
+    switch profile
+        case 'wide'
+            prepareGridColumns(grid, 14);
+            setGridItemLayout(layout.VariableLabel, 1, [1, 5]);
+            setGridItemLayout(layout.GlobalLabel, 1, [6, 9]);
+            setGridItemLayout(layout.SamplingLabel, 1, [10, 14]);
+            setGridItemLayout(layout.ModeText, 2, 1);
+            setGridItemLayout(layout.ModeDropDown, 2, [2, 4]);
+            setGridItemLayout(layout.ModeHint, 2, [5, 14]);
+            setGridItemLayout(layout.IsoModeText, 3, 1);
+            setGridItemLayout(layout.IsoModeDropDown, 3, [2, 4]);
+            setGridItemLayout(layout.IsoModeHint, 3, [5, 14]);
+            setGridItemLayout(layout.CountText, 4, 1);
+            setGridItemLayout(layout.CountSpinner, 4, 2);
+            setGridItemLayout(layout.LowerText, 4, 3);
+            setGridItemLayout(layout.LowerEdit, 4, 4);
+            setGridItemLayout(layout.UpperText, 4, 5);
+            setGridItemLayout(layout.UpperEdit, 4, 6);
+            setGridItemLayout(layout.ExactValueText, 4, [1, 2]);
+            setGridItemLayout(layout.ExactValueEdit, 4, [3, 4]);
+            if showAlpha
+                setGridItemLayout(layout.ExactValueSlider, 4, [5, 10]);
+            else
+                setGridItemLayout(layout.ExactValueSlider, 4, [5, 14]);
+            end
+            setVolumeAlphaLayout(layout.AlphaText, layout.AlphaSlider, ...
+                isoSelectionMode);
+            setGridItemLayout(layout.PlaybackText, 5, [1, 2]);
+            setGridItemLayout(layout.PlayButton, 5, [3, 4]);
+            setGridItemLayout(layout.IntervalText, 5, 5);
+            setGridItemLayout(layout.PlaybackIntervalEdit, 5, 6);
+            setGridItemLayout(layout.PlaybackHint, 5, [7, 14]);
+            rowHeights = {28, 34 * double(showMode), ...
+                36 * double(showIsoMode), ...
+                46 * double(showCount || showRange || showExact || showAlpha), ...
+                36 * double(showPlayback)};
+            grid.ColumnWidth = {82, 62, 76, 62, 76, 62, 55, ...
+                '1x', '1x', '1x', 55, 62, 62, 72};
+        case 'compact'
+            prepareGridColumns(grid, 6);
+            row = 1;
+            setGridItemLayout(layout.VariableLabel, row, [1, 6]); row = row + 1;
+            setGridItemLayout(layout.GlobalLabel, row, [1, 6]); row = row + 1;
+            setGridItemLayout(layout.SamplingLabel, row, [1, 6]); row = row + 1;
+            rowHeights = {28, 28, 28};
+            if showMode
+                setGridItemLayout(layout.ModeText, row, 1);
+                setGridItemLayout(layout.ModeDropDown, row, [2, 3]);
+                setGridItemLayout(layout.ModeHint, row, [4, 6]);
+                rowHeights{row} = 44; row = row + 1;
+            end
+            if showIsoMode
+                setGridItemLayout(layout.IsoModeText, row, 1);
+                setGridItemLayout(layout.IsoModeDropDown, row, [2, 3]);
+                setGridItemLayout(layout.IsoModeHint, row, [4, 6]);
+                rowHeights{row} = 44; row = row + 1;
+            end
+            parameterRow = row;
+            setGridItemLayout(layout.CountText, parameterRow, 1);
+            setGridItemLayout(layout.CountSpinner, parameterRow, 2);
+            setGridItemLayout(layout.LowerText, parameterRow, 3);
+            setGridItemLayout(layout.LowerEdit, parameterRow, 4);
+            setGridItemLayout(layout.UpperText, parameterRow, 5);
+            setGridItemLayout(layout.UpperEdit, parameterRow, 6);
+            setGridItemLayout(layout.ExactValueText, parameterRow, 1);
+            setGridItemLayout(layout.ExactValueEdit, parameterRow, 2);
+            setGridItemLayout(layout.ExactValueSlider, parameterRow, [3, 6]);
+            if isSingle && showExact
+                rowHeights{row} = 44; row = row + 1;
+            elseif showCount || showRange
+                rowHeights{row} = 38; row = row + 1;
+            end
+            if showAlpha
+                setGridItemLayout(layout.AlphaText, row, 1);
+                setGridItemLayout(layout.AlphaSlider, row, [2, 6]);
+                rowHeights{row} = 44; row = row + 1;
+            end
+            if hasGraphics(layout.PlayButton)
+                setGridItemLayout(layout.PlaybackText, row, 1);
+                setGridItemLayout(layout.PlayButton, row, 2);
+                setGridItemLayout(layout.IntervalText, row, 3);
+                setGridItemLayout(layout.PlaybackIntervalEdit, row, 4);
+                setGridItemLayout(layout.PlaybackHint, row, [5, 6]);
+            end
+            if showPlayback
+                rowHeights{row} = 44;
+            elseif hasGraphics(layout.PlayButton)
+                rowHeights{row} = 0;
+            end
+            grid.ColumnWidth = {92, 86, 76, '1x', 76, 86};
+        otherwise
+            prepareGridColumns(grid, 4);
+            row = 1;
+            setGridItemLayout(layout.VariableLabel, row, [1, 4]); row = row + 1;
+            setGridItemLayout(layout.GlobalLabel, row, [1, 4]); row = row + 1;
+            setGridItemLayout(layout.SamplingLabel, row, [1, 4]); row = row + 1;
+            rowHeights = {28, 28, 28};
+            if showMode
+                setGridItemLayout(layout.ModeText, row, 1);
+                setGridItemLayout(layout.ModeDropDown, row, [2, 4]);
+                rowHeights{row} = 34; row = row + 1;
+                setGridItemLayout(layout.ModeHint, row, [1, 4]);
+                rowHeights{row} = 36; row = row + 1;
+            end
+            if showIsoMode
+                setGridItemLayout(layout.IsoModeText, row, 1);
+                setGridItemLayout(layout.IsoModeDropDown, row, [2, 4]);
+                rowHeights{row} = 34; row = row + 1;
+                setGridItemLayout(layout.IsoModeHint, row, [1, 4]);
+                rowHeights{row} = 36; row = row + 1;
+            end
+            parameterRow = row;
+            setGridItemLayout(layout.CountText, parameterRow, 1);
+            setGridItemLayout(layout.CountSpinner, parameterRow, 2);
+            setGridItemLayout(layout.LowerText, parameterRow, 1);
+            setGridItemLayout(layout.LowerEdit, parameterRow, 2);
+            setGridItemLayout(layout.UpperText, parameterRow, 3);
+            setGridItemLayout(layout.UpperEdit, parameterRow, 4);
+            setGridItemLayout(layout.ExactValueText, parameterRow, 1);
+            setGridItemLayout(layout.ExactValueEdit, parameterRow, 2);
+            setGridItemLayout(layout.ExactValueSlider, parameterRow, [3, 4]);
+            if isSingle && showExact
+                rowHeights{row} = 44; row = row + 1;
+            elseif showCount || showRange
+                if showCount
+                    rowHeights{row} = 34; row = row + 1;
+                end
+                if showRange
+                    setGridItemLayout(layout.LowerText, row, 1);
+                    setGridItemLayout(layout.LowerEdit, row, 2);
+                    setGridItemLayout(layout.UpperText, row, 3);
+                    setGridItemLayout(layout.UpperEdit, row, 4);
+                    rowHeights{row} = 34; row = row + 1;
+                end
+            end
+            if showAlpha
+                setGridItemLayout(layout.AlphaText, row, 1);
+                setGridItemLayout(layout.AlphaSlider, row, [2, 4]);
+                rowHeights{row} = 44; row = row + 1;
+            end
+            if hasGraphics(layout.PlayButton)
+                setGridItemLayout(layout.PlaybackText, row, 1);
+                setGridItemLayout(layout.PlayButton, row, 2);
+                setGridItemLayout(layout.IntervalText, row, 3);
+                setGridItemLayout(layout.PlaybackIntervalEdit, row, 4);
+            end
+            if showPlayback
+                rowHeights{row} = 34; row = row + 1;
+                setGridItemLayout(layout.PlaybackHint, row, [1, 4]);
+                rowHeights{row} = 36;
+            elseif hasGraphics(layout.PlaybackHint)
+                setGridItemLayout(layout.PlaybackHint, row, [1, 4]);
+                rowHeights{row} = 0;
+            end
+            grid.ColumnWidth = {92, 100, '1x', 86};
+    end
+    grid.RowHeight = rowHeights;
+    height = preferredPanelHeight(grid, rowHeights);
+end
+
+
+function prepareGridColumns(grid, targetColumnCount)
+    if numel(grid.ColumnWidth) < targetColumnCount
+        grid.ColumnWidth = repmat({'1x'}, 1, targetColumnCount);
+    end
+end
+
+
+function setGridItemLayout(item, row, column)
+    if hasGraphics(item)
+        item.Layout.Row = row;
+        item.Layout.Column = column;
+    end
+end
+
+
+function setLabelWordWrap(label, shouldWrap)
+    if hasGraphics(label) && isprop(label, 'WordWrap')
+        value = 'off';
+        if shouldWrap
+            value = 'on';
+        end
+        label.WordWrap = value;
+    end
+end
+
+
+function tf = hasGraphics(item)
+    tf = ~isempty(item) && all(isgraphics(item));
+end
+
+
+function height = preferredPanelHeight(grid, rowHeights)
+    height = sum(cell2mat(rowHeights)) + grid.Padding(2) + ...
+        grid.Padding(4) + grid.RowSpacing * (numel(rowHeights) - 1) + 26;
+end
+
+
+function height = currentGridPanelHeight(grid)
+    if isempty(grid) || ~isgraphics(grid)
+        height = 120;
+        return
+    end
+    numericHeights = cellfun(@(value) double(value), grid.RowHeight);
+    height = preferredPanelHeight(grid, num2cell(numericHeights));
+end
+
+
+function height = currentSourceSelectorHeight(layout)
+    if isempty(layout.Grid) || ~isgraphics(layout.Grid)
+        height = 0;
+        return
+    end
+    grid = layout.Grid;
+    numericHeights = cellfun(@(value) double(value), grid.RowHeight);
+    height = sum(numericHeights) + grid.Padding(2) + grid.Padding(4) + ...
+        grid.RowSpacing * (numel(numericHeights) - 1);
 end
 
 
@@ -847,26 +1476,17 @@ function fig = createVariableSelectionFigure(opts, existingFig)
 
     fig = prepareViewerFigure(existingFig, figName, ...
         [120, 70, 1180, 830], opts.Visible);
-    mainGrid = uigridlayout(fig, [3, 1]);
-    mainGrid.RowHeight = {sourceSelectorHeight(opts), '1x', panelHeight};
-    mainGrid.Padding = [18, 18, 18, 18];
-    mainGrid.RowSpacing = 8;
-    [filePathEdit, browseButton, variableDropDown] = ...
-        addSourceSelector(mainGrid, opts, '');
-
-    ax = uiaxes(mainGrid);
-    ax.Layout.Row = 2;
+    shell = createViewerShell(fig, opts, '', panelTitle, panelHeight, false);
+    mainGrid = shell.MainGrid;
+    ax = shell.Axes;
     ax.Visible = 'off';
     ax.Toolbar.Visible = 'off';
-
-    controlPanel = uipanel(mainGrid, 'Title', panelTitle, ...
-        'FontWeight', 'bold', 'BackgroundColor', [0.98, 0.98, 0.99]);
-    controlPanel.Layout.Row = 3;
+    controlPanel = shell.ControlPanel;
     switch opts.PlotType
         case 'slice'
-            createDisabledSliceControls(controlPanel, opts);
+            [controls, controlLayout] = createDisabledSliceControls(controlPanel, opts);
         case 'volume'
-            createDisabledVolumeControls(controlPanel, opts);
+            [controls, controlLayout] = createDisabledVolumeControls(controlPanel, opts);
     end
 
     fig.UserData = struct( ...
@@ -875,23 +1495,28 @@ function fig = createVariableSelectionFigure(opts, existingFig)
         'PlotMode', opts.PlotType, ...
         'Options', opts, ...
         'Axes', ax, ...
-        'FilePathEdit', filePathEdit, ...
-        'BrowseButton', browseButton, ...
-        'VariableDropDown', variableDropDown, ...
+        'FilePathEdit', shell.FilePathEdit, ...
+        'BrowseButton', shell.BrowseButton, ...
+        'VariableDropDown', shell.VariableDropDown, ...
         'PlayButton', gobjects(0), ...
-        'PlaybackTimer', []);
-    variableDropDown.ValueChangedFcn = ...
+        'PlaybackTimer', [], ...
+        'MainGrid', mainGrid, ...
+        'ControlsGrid', controls, ...
+        'ControlPanelRow', shell.ControlPanelRow, ...
+        'Layout', makeViewerLayout(shell, controlLayout, opts.PlotType));
+    shell.VariableDropDown.ValueChangedFcn = ...
         @(source, event) onVariableChanged(fig, source, event);
-    if ~isempty(filePathEdit) && isgraphics(filePathEdit)
-        filePathEdit.ValueChangedFcn = ...
+    if ~isempty(shell.FilePathEdit) && isgraphics(shell.FilePathEdit)
+        shell.FilePathEdit.ValueChangedFcn = ...
             @(source, event) onMatFilePathChanged(fig, source, event);
-        browseButton.ButtonPushedFcn = ...
+        shell.BrowseButton.ButtonPushedFcn = ...
             @(source, event) browseForMatFile(fig, source, event);
     end
+    enableResponsiveViewerLayout(fig);
 end
 
 
-function createDisabledSliceControls(controlPanel, opts)
+function [controls, layout] = createDisabledSliceControls(controlPanel, opts)
     showMode = ~opts.Specified.PlotType;
     showDimension = ~opts.Specified.Dimension;
     showIndex = ~opts.Specified.Index;
@@ -907,10 +1532,11 @@ function createDisabledSliceControls(controlPanel, opts)
     controls.Padding = [10, 14, 10, 8];
     controls.ColumnSpacing = 7;
     controls.RowSpacing = 6;
+    controls.Scrollable = 'on';
 
-    pending = uilabel(controls, 'Text', '变量：尚未选择', 'FontWeight', 'bold');
-    pending.Layout.Row = 1;
-    pending.Layout.Column = [1, 3];
+    variableLabel = uilabel(controls, 'Text', '变量：尚未选择', 'FontWeight', 'bold');
+    variableLabel.Layout.Row = 1;
+    variableLabel.Layout.Column = [1, 3];
     globalLabel = uilabel(controls, 'Text', '全局 [min, max]：-- / --');
     globalLabel.Layout.Row = 1;
     globalLabel.Layout.Column = [4, 7];
@@ -918,85 +1544,134 @@ function createDisabledSliceControls(controlPanel, opts)
     sliceLabel.Layout.Row = 1;
     sliceLabel.Layout.Column = [8, 14];
 
+    modeText = gobjects(0);
+    modeDropDown = gobjects(0);
     if showMode
-        label = uilabel(controls, 'Text', '绘图模式');
-        label.Layout.Row = 2;
-        label.Layout.Column = 1;
-        control = uidropdown(controls, 'Items', {'Slice（二维切片）'}, ...
+        modeText = uilabel(controls, 'Text', '绘图模式', 'Enable', 'off');
+        modeText.Layout.Row = 2;
+        modeText.Layout.Column = 1;
+        modeDropDown = uidropdown(controls, 'Items', {'Slice（二维切片）'}, ...
             'Value', 'Slice（二维切片）', 'Enable', 'off');
-        control.Layout.Row = 2;
-        control.Layout.Column = [2, 4];
+        modeDropDown.Layout.Row = 2;
+        modeDropDown.Layout.Column = [2, 4];
     end
+
+    dimensionText = gobjects(0);
+    dimensionDropDown = gobjects(0);
     if showDimension
-        label = uilabel(controls, 'Text', '切片维度');
-        label.Layout.Row = 3;
-        label.Layout.Column = 1;
-        control = uidropdown(controls, ...
+        dimensionText = uilabel(controls, 'Text', '切片维度', 'Enable', 'off');
+        dimensionText.Layout.Row = 3;
+        dimensionText.Layout.Column = 1;
+        dimensionDropDown = uidropdown(controls, ...
             'Items', {'Dim 1', 'Dim 2', 'Dim 3'}, ...
             'Value', 'Dim 3', 'Enable', 'off');
-        control.Layout.Row = 3;
-        control.Layout.Column = 2;
+        dimensionDropDown.Layout.Row = 3;
+        dimensionDropDown.Layout.Column = 2;
     end
-    if showIndex
-        label = uilabel(controls, 'Text', '索引');
-        label.Layout.Row = 3;
-        label.Layout.Column = 3;
-        slider = uislider(controls, 'Limits', [1, 2], 'Value', 1, ...
-            'MajorTicks', [1, 2], 'Enable', 'off');
-        slider.Layout.Row = 3;
-        slider.Layout.Column = [4, 6];
-        edit = uieditfield(controls, 'numeric', 'Value', 1, 'Enable', 'off');
-        edit.Layout.Row = 3;
-        edit.Layout.Column = 7;
-        play = uibutton(controls, 'Text', '播放', 'Enable', 'off');
-        play.Layout.Row = 5;
-        play.Layout.Column = 2;
-        interval = uieditfield(controls, 'numeric', 'Value', 0.12, 'Enable', 'off');
-        interval.Layout.Row = 5;
-        interval.Layout.Column = 4;
-    end
-    if showColor
-        label = uilabel(controls, 'Text', '颜色栏范围');
-        label.Layout.Row = 3;
-        label.Layout.Column = 9;
-        control = uidropdown(controls, 'Items', {'全局范围'}, ...
-            'Value', '全局范围', 'Enable', 'off');
-        control.Layout.Row = 3;
-        control.Layout.Column = 10;
-        label = uilabel(controls, 'Text', '下限', 'Enable', 'off');
-        label.Layout.Row = 3;
-        label.Layout.Column = 11;
-        lower = uieditfield(controls, 'numeric', ...
-            'Value', 0, 'Enable', 'off');
-        lower.Layout.Row = 3;
-        lower.Layout.Column = 12;
-        label = uilabel(controls, 'Text', '上限', 'Enable', 'off');
-        label.Layout.Row = 3;
-        label.Layout.Column = 13;
-        upper = uieditfield(controls, 'numeric', ...
-            'Value', 1, 'Enable', 'off');
-        upper.Layout.Row = 3;
-        upper.Layout.Column = 14;
 
-        label = uilabel(controls, 'Text', '下限粗调', 'Enable', 'off');
-        label.Layout.Row = 4;
-        label.Layout.Column = [1, 2];
-        lowerSlider = uislider(controls, 'Limits', [0, 1], ...
-            'Value', 0, 'Enable', 'off');
-        lowerSlider.Layout.Row = 4;
-        lowerSlider.Layout.Column = [3, 7];
-        label = uilabel(controls, 'Text', '上限粗调', 'Enable', 'off');
-        label.Layout.Row = 4;
-        label.Layout.Column = [8, 9];
-        upperSlider = uislider(controls, 'Limits', [0, 1], ...
-            'Value', 1, 'Enable', 'off');
-        upperSlider.Layout.Row = 4;
-        upperSlider.Layout.Column = [10, 14];
+    indexText = gobjects(0);
+    indexSlider = gobjects(0);
+    indexEdit = gobjects(0);
+    playbackText = gobjects(0);
+    playButton = gobjects(0);
+    intervalText = gobjects(0);
+    playbackIntervalEdit = gobjects(0);
+    if showIndex
+        indexText = uilabel(controls, 'Text', '索引', 'Enable', 'off');
+        indexText.Layout.Row = 3;
+        indexText.Layout.Column = 3;
+        indexSlider = uislider(controls, 'Limits', [1, 2], 'Value', 1, ...
+            'MajorTicks', [1, 2], 'Enable', 'off');
+        indexSlider.Layout.Row = 3;
+        indexSlider.Layout.Column = [4, 6];
+        indexEdit = uieditfield(controls, 'numeric', 'Value', 1, 'Enable', 'off');
+        indexEdit.Layout.Row = 3;
+        indexEdit.Layout.Column = 7;
+        playbackText = uilabel(controls, 'Text', '自动播放', 'Enable', 'off');
+        playbackText.Layout.Row = 5;
+        playbackText.Layout.Column = 1;
+        playButton = uibutton(controls, 'Text', '播放', 'Enable', 'off');
+        playButton.Layout.Row = 5;
+        playButton.Layout.Column = 2;
+        intervalText = uilabel(controls, 'Text', '间隔(s)', 'Enable', 'off');
+        intervalText.Layout.Row = 5;
+        intervalText.Layout.Column = 3;
+        playbackIntervalEdit = uieditfield(controls, 'numeric', ...
+            'Value', 0.12, 'Enable', 'off');
+        playbackIntervalEdit.Layout.Row = 5;
+        playbackIntervalEdit.Layout.Column = 4;
     end
+
+    colorText = gobjects(0);
+    colorDropDown = gobjects(0);
+    colorLowerText = gobjects(0);
+    colorLowerEdit = gobjects(0);
+    colorUpperText = gobjects(0);
+    colorUpperEdit = gobjects(0);
+    colorLowerSliderText = gobjects(0);
+    colorLowerSlider = gobjects(0);
+    colorUpperSliderText = gobjects(0);
+    colorUpperSlider = gobjects(0);
+    if showColor
+        colorText = uilabel(controls, 'Text', '颜色栏范围', 'Enable', 'off');
+        colorText.Layout.Row = 3;
+        colorText.Layout.Column = 9;
+        colorDropDown = uidropdown(controls, 'Items', {'全局范围'}, ...
+            'Value', '全局范围', 'Enable', 'off');
+        colorDropDown.Layout.Row = 3;
+        colorDropDown.Layout.Column = 10;
+        colorLowerText = uilabel(controls, 'Text', '下限', 'Enable', 'off');
+        colorLowerText.Layout.Row = 3;
+        colorLowerText.Layout.Column = 11;
+        colorLowerEdit = uieditfield(controls, 'numeric', ...
+            'Value', 0, 'Enable', 'off');
+        colorLowerEdit.Layout.Row = 3;
+        colorLowerEdit.Layout.Column = 12;
+        colorUpperText = uilabel(controls, 'Text', '上限', 'Enable', 'off');
+        colorUpperText.Layout.Row = 3;
+        colorUpperText.Layout.Column = 13;
+        colorUpperEdit = uieditfield(controls, 'numeric', ...
+            'Value', 1, 'Enable', 'off');
+        colorUpperEdit.Layout.Row = 3;
+        colorUpperEdit.Layout.Column = 14;
+
+        colorLowerSliderText = uilabel(controls, 'Text', '下限粗调', 'Enable', 'off');
+        colorLowerSliderText.Layout.Row = 4;
+        colorLowerSliderText.Layout.Column = [1, 2];
+        colorLowerSlider = uislider(controls, 'Limits', [0, 1], ...
+            'Value', 0, 'Enable', 'off');
+        colorLowerSlider.Layout.Row = 4;
+        colorLowerSlider.Layout.Column = [3, 7];
+        colorUpperSliderText = uilabel(controls, 'Text', '上限粗调', 'Enable', 'off');
+        colorUpperSliderText.Layout.Row = 4;
+        colorUpperSliderText.Layout.Column = [8, 9];
+        colorUpperSlider = uislider(controls, 'Limits', [0, 1], ...
+            'Value', 1, 'Enable', 'off');
+        colorUpperSlider.Layout.Row = 4;
+        colorUpperSlider.Layout.Column = [10, 14];
+    end
+    layout = struct( ...
+        'Kind', 'slice', 'Grid', controls, ...
+        'VariableLabel', variableLabel, 'GlobalLabel', globalLabel, ...
+        'SliceLabel', sliceLabel, 'ModeText', modeText, ...
+        'ModeDropDown', modeDropDown, 'ModeHint', gobjects(0), ...
+        'DimensionText', dimensionText, 'DimensionDropDown', dimensionDropDown, ...
+        'IndexText', indexText, 'IndexSlider', indexSlider, 'IndexEdit', indexEdit, ...
+        'ColorText', colorText, 'ColorDropDown', colorDropDown, ...
+        'ColorLowerText', colorLowerText, 'ColorLowerEdit', colorLowerEdit, ...
+        'ColorUpperText', colorUpperText, 'ColorUpperEdit', colorUpperEdit, ...
+        'ColorLowerSliderText', colorLowerSliderText, ...
+        'ColorLowerSlider', colorLowerSlider, ...
+        'ColorUpperSliderText', colorUpperSliderText, ...
+        'ColorUpperSlider', colorUpperSlider, ...
+        'PlaybackText', playbackText, 'PlayButton', playButton, ...
+        'IntervalText', intervalText, ...
+        'PlaybackIntervalEdit', playbackIntervalEdit, ...
+        'PlaybackHint', gobjects(0));
 end
 
 
-function createDisabledVolumeControls(controlPanel, opts)
+function [controls, layout] = createDisabledVolumeControls(controlPanel, opts)
     showMode = ~opts.Specified.PlotType;
     useExactValues = opts.Specified.IsoValues;
     automaticSpecified = opts.Specified.NumIsosurfaces || opts.Specified.IsoRange;
@@ -1015,9 +1690,10 @@ function createDisabledVolumeControls(controlPanel, opts)
     controls.ColumnSpacing = 7;
     controls.RowSpacing = 6;
 
-    pending = uilabel(controls, 'Text', '变量：尚未选择', 'FontWeight', 'bold');
-    pending.Layout.Row = 1;
-    pending.Layout.Column = [1, 5];
+    controls.Scrollable = 'on';
+    variableLabel = uilabel(controls, 'Text', '变量：尚未选择', 'FontWeight', 'bold');
+    variableLabel.Layout.Row = 1;
+    variableLabel.Layout.Column = [1, 5];
     globalLabel = uilabel(controls, 'Text', '全局 [min, max]：-- / --');
     globalLabel.Layout.Row = 1;
     globalLabel.Layout.Column = [6, 9];
@@ -1025,57 +1701,87 @@ function createDisabledVolumeControls(controlPanel, opts)
     sampleLabel.Layout.Row = 1;
     sampleLabel.Layout.Column = [10, 14];
 
+    modeText = gobjects(0);
+    modeDropDown = gobjects(0);
     if showMode
-        label = uilabel(controls, 'Text', '绘图模式');
-        label.Layout.Row = 2;
-        label.Layout.Column = 1;
-        control = uidropdown(controls, 'Items', {'Volume（三维等值面）'}, ...
+        modeText = uilabel(controls, 'Text', '绘图模式', 'Enable', 'off');
+        modeText.Layout.Row = 2;
+        modeText.Layout.Column = 1;
+        modeDropDown = uidropdown(controls, 'Items', {'Volume（三维等值面）'}, ...
             'Value', 'Volume（三维等值面）', 'Enable', 'off');
-        control.Layout.Row = 2;
-        control.Layout.Column = [2, 4];
+        modeDropDown.Layout.Row = 2;
+        modeDropDown.Layout.Column = [2, 4];
     end
+
+    isoModeText = gobjects(0);
+    isoModeDropDown = gobjects(0);
     if showIsoMode
-        label = uilabel(controls, 'Text', '等值面方式');
-        label.Layout.Row = 3;
-        label.Layout.Column = 1;
-        control = uidropdown(controls, 'Items', {'自动多层'}, ...
+        isoModeText = uilabel(controls, 'Text', '等值面方式', 'Enable', 'off');
+        isoModeText.Layout.Row = 3;
+        isoModeText.Layout.Column = 1;
+        isoModeDropDown = uidropdown(controls, 'Items', {'自动多层'}, ...
             'Value', '自动多层', 'Enable', 'off');
-        control.Layout.Row = 3;
-        control.Layout.Column = [2, 4];
+        isoModeDropDown.Layout.Row = 3;
+        isoModeDropDown.Layout.Column = [2, 4];
     end
+
+    countText = gobjects(0);
+    countSpinner = gobjects(0);
     if showCount
-        label = uilabel(controls, 'Text', '等值面数');
-        label.Layout.Row = 4;
-        label.Layout.Column = 1;
-        control = uispinner(controls, 'Value', opts.NumIsosurfaces, 'Enable', 'off');
-        control.Layout.Row = 4;
-        control.Layout.Column = 2;
+        countText = uilabel(controls, 'Text', '等值面数', 'Enable', 'off');
+        countText.Layout.Row = 4;
+        countText.Layout.Column = 1;
+        countSpinner = uispinner(controls, 'Value', opts.NumIsosurfaces, 'Enable', 'off');
+        countSpinner.Layout.Row = 4;
+        countSpinner.Layout.Column = 2;
     end
+
+    lowerText = gobjects(0);
+    lowerEdit = gobjects(0);
+    upperText = gobjects(0);
+    upperEdit = gobjects(0);
     if showRange
-        label = uilabel(controls, 'Text', '范围下限%');
-        label.Layout.Row = 4;
-        label.Layout.Column = 3;
-        lower = uieditfield(controls, 'numeric', ...
+        lowerText = uilabel(controls, 'Text', '范围下限%', 'Enable', 'off');
+        lowerText.Layout.Row = 4;
+        lowerText.Layout.Column = 3;
+        lowerEdit = uieditfield(controls, 'numeric', ...
             'Value', 100 * opts.IsoRange(1), 'Enable', 'off');
-        lower.Layout.Row = 4;
-        lower.Layout.Column = 4;
-        label = uilabel(controls, 'Text', '范围上限%');
-        label.Layout.Row = 4;
-        label.Layout.Column = 5;
-        upper = uieditfield(controls, 'numeric', ...
+        lowerEdit.Layout.Row = 4;
+        lowerEdit.Layout.Column = 4;
+        upperText = uilabel(controls, 'Text', '范围上限%', 'Enable', 'off');
+        upperText.Layout.Row = 4;
+        upperText.Layout.Column = 5;
+        upperEdit = uieditfield(controls, 'numeric', ...
             'Value', 100 * opts.IsoRange(2), 'Enable', 'off');
-        upper.Layout.Row = 4;
-        upper.Layout.Column = 6;
+        upperEdit.Layout.Row = 4;
+        upperEdit.Layout.Column = 6;
     end
+
+    alphaText = gobjects(0);
+    alphaSlider = gobjects(0);
     if showAlpha
-        label = uilabel(controls, 'Text', '透明度');
-        label.Layout.Row = 4;
-        label.Layout.Column = 7;
-        slider = uislider(controls, 'Limits', [0.03, 1], ...
+        alphaText = uilabel(controls, 'Text', '透明度', 'Enable', 'off');
+        alphaText.Layout.Row = 4;
+        alphaText.Layout.Column = 7;
+        alphaSlider = uislider(controls, 'Limits', [0.03, 1], ...
             'Value', opts.SurfaceAlpha, 'Enable', 'off');
-        slider.Layout.Row = 4;
-        slider.Layout.Column = [8, 14];
+        alphaSlider.Layout.Row = 4;
+        alphaSlider.Layout.Column = [8, 14];
     end
+    layout = struct( ...
+        'Kind', 'volume', 'Grid', controls, ...
+        'VariableLabel', variableLabel, 'GlobalLabel', globalLabel, ...
+        'SamplingLabel', sampleLabel, 'ModeText', modeText, ...
+        'ModeDropDown', modeDropDown, 'ModeHint', gobjects(0), ...
+        'IsoModeText', isoModeText, 'IsoModeDropDown', isoModeDropDown, ...
+        'IsoModeHint', gobjects(0), 'CountText', countText, ...
+        'CountSpinner', countSpinner, 'LowerText', lowerText, ...
+        'LowerEdit', lowerEdit, 'UpperText', upperText, 'UpperEdit', upperEdit, ...
+        'ExactValueText', gobjects(0), 'ExactValueEdit', gobjects(0), ...
+        'ExactValueSlider', gobjects(0), 'AlphaText', alphaText, ...
+        'AlphaSlider', alphaSlider, 'PlaybackText', gobjects(0), ...
+        'PlayButton', gobjects(0), 'IntervalText', gobjects(0), ...
+        'PlaybackIntervalEdit', gobjects(0), 'PlaybackHint', gobjects(0));
 end
 
 
@@ -1215,7 +1921,6 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
         dimension = [];
         index = [];
     end
-    showSourceControl = ~opts.Specified.MatFile || ~opts.Specified.Variable;
     showModeControl = fieldDimension == 3 && ~opts.Specified.PlotType;
     showDimensionControl = fieldDimension == 3 && ~opts.Specified.Dimension;
     showIndexControl = fieldDimension == 3 && ~opts.Specified.Index;
@@ -1228,42 +1933,16 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
     controlPanelHeight = 100 + 34 * double(showModeControl) + ...
         42 * double(showSliceControlRow) + 42 * double(showColorControl) + ...
         36 * double(showPlaybackControl);
-    if showSourceControl
-        mainGrid = uigridlayout(fig, [3, 1]);
-        mainGrid.RowHeight = {sourceSelectorHeight(opts), '1x', controlPanelHeight};
-        plotRow = 2;
-        controlRow = 3;
-        [filePathEdit, browseButton, variableDropDown] = ...
-            addSourceSelector(mainGrid, opts, opts.Variable);
-    else
-        mainGrid = uigridlayout(fig, [2, 1]);
-        mainGrid.RowHeight = {'1x', controlPanelHeight};
-        plotRow = 1;
-        controlRow = 2;
-        filePathEdit = gobjects(0);
-        browseButton = gobjects(0);
-        variableDropDown = gobjects(0);
-    end
-    mainGrid.Padding = [12, 12, 12, 12];
-    mainGrid.RowSpacing = 8;
-
-    plotGrid = uigridlayout(mainGrid, [1, 1]);
-    plotGrid.Layout.Row = plotRow;
-    plotGrid.Padding = [0, 0, 0, 18];
-    plotGrid.RowSpacing = 0;
-    plotGrid.ColumnSpacing = 0;
-    ax = uiaxes(plotGrid);
-    ax.Box = 'on';
-    ax.FontName = 'Consolas';
-    ax.FontSize = 12;
-    ax.Toolbar.Visible = 'on';
-    colormap(ax, opts.Colormap);
-    cb = colorbar(ax);
-    cb.Label.String = 'Value';
-
-    controlPanel = uipanel(mainGrid, 'Title', '切片控制', ...
-        'FontWeight', 'bold', 'BackgroundColor', [0.98, 0.98, 0.99]);
-    controlPanel.Layout.Row = controlRow;
+    shell = createViewerShell(fig, opts, opts.Variable, '切片控制', ...
+        controlPanelHeight, true);
+    mainGrid = shell.MainGrid;
+    ax = shell.Axes;
+    cb = shell.Colorbar;
+    controlPanel = shell.ControlPanel;
+    filePathEdit = shell.FilePathEdit;
+    browseButton = shell.BrowseButton;
+    variableDropDown = shell.VariableDropDown;
+    controlRow = shell.ControlPanelRow;
     controls = uigridlayout(controlPanel, [5, 14]);
     controls.RowHeight = {28, 34 * double(showModeControl), ...
         42 * double(showSliceControlRow), 42 * double(showColorControl), ...
@@ -1273,6 +1952,7 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
     controls.Padding = [10, 14, 10, 8];
     controls.ColumnSpacing = 7;
     controls.RowSpacing = 6;
+    controls.Scrollable = 'on';
 
     variableLabel = uilabel(controls, ...
         'Text', sprintf('变量：%s', opts.Variable), 'FontWeight', 'bold');
@@ -1290,7 +1970,9 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
     sliceLabel.Layout.Row = 1;
     sliceLabel.Layout.Column = [8, 14];
 
+    modeText = gobjects(0);
     modeDropDown = gobjects(0);
+    modeHint = gobjects(0);
     if showModeControl
         modeText = uilabel(controls, 'Text', '绘图模式');
         modeText.Layout.Row = 2;
@@ -1307,6 +1989,7 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
         modeHint.Layout.Column = [5, 14];
     end
 
+    dimText = gobjects(0);
     dimDropDown = gobjects(0);
     if showDimensionControl
         dimText = uilabel(controls, 'Text', '切片维度');
@@ -1319,6 +2002,7 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
         dimDropDown.Layout.Column = 2;
     end
 
+    indexText = gobjects(0);
     indexSlider = gobjects(0);
     indexEdit = gobjects(0);
     if showIndexControl
@@ -1338,8 +2022,11 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
         indexEdit.Layout.Column = 7;
     end
 
+    playbackText = gobjects(0);
     playButton = gobjects(0);
+    intervalText = gobjects(0);
     playbackIntervalEdit = gobjects(0);
+    playbackHint = gobjects(0);
     playbackTimer = [];
     if showPlaybackControl
         playbackText = uilabel(controls, 'Text', '自动播放');
@@ -1373,6 +2060,7 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
         customClim = makeSafeLimits(globalRange);
     end
 
+    colorText = gobjects(0);
     colorDropDown = gobjects(0);
     colorLowerText = gobjects(0);
     colorLowerEdit = gobjects(0);
@@ -1440,6 +2128,36 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
         setControlEnabled(colorUpperSlider, customControlsEnabled);
     end
 
+    controlLayout = struct( ...
+        'Kind', 'slice', ...
+        'Grid', controls, ...
+        'VariableLabel', variableLabel, ...
+        'GlobalLabel', globalLabel, ...
+        'SliceLabel', sliceLabel, ...
+        'ModeText', modeText, ...
+        'ModeDropDown', modeDropDown, ...
+        'ModeHint', modeHint, ...
+        'DimensionText', dimText, ...
+        'DimensionDropDown', dimDropDown, ...
+        'IndexText', indexText, ...
+        'IndexSlider', indexSlider, ...
+        'IndexEdit', indexEdit, ...
+        'ColorText', colorText, ...
+        'ColorDropDown', colorDropDown, ...
+        'ColorLowerText', colorLowerText, ...
+        'ColorLowerEdit', colorLowerEdit, ...
+        'ColorUpperText', colorUpperText, ...
+        'ColorUpperEdit', colorUpperEdit, ...
+        'ColorLowerSliderText', colorLowerSliderText, ...
+        'ColorLowerSlider', colorLowerSlider, ...
+        'ColorUpperSliderText', colorUpperSliderText, ...
+        'ColorUpperSlider', colorUpperSlider, ...
+        'PlaybackText', playbackText, ...
+        'PlayButton', playButton, ...
+        'IntervalText', intervalText, ...
+        'PlaybackIntervalEdit', playbackIntervalEdit, ...
+        'PlaybackHint', playbackHint);
+
     state = struct( ...
         'Data', volumeData, ...
         'DataSize', dataSize, ...
@@ -1476,7 +2194,11 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
         'PlayButton', playButton, ...
         'PlaybackIntervalEdit', playbackIntervalEdit, ...
         'PlaybackTimer', playbackTimer, ...
-        'LastSliceRenderClock', tic);
+        'LastSliceRenderClock', tic, ...
+        'MainGrid', mainGrid, ...
+        'ControlsGrid', controls, ...
+        'ControlPanelRow', controlRow, ...
+        'Layout', makeViewerLayout(shell, controlLayout, 'slice'));
     fig.UserData = state;
 
     if ~isempty(modeDropDown) && isgraphics(modeDropDown)
@@ -1522,6 +2244,7 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
     end
 
     renderSlice(fig, index);
+    enableResponsiveViewerLayout(fig);
 end
 
 
@@ -1665,6 +2388,11 @@ function onSliceColorLimitSlider(fig, boundName, requestedValue, synchronizeSlid
     state.ColorMode = 'custom';
     state.ColorDropDown.Value = 'custom';
     state.Axes.CLim = limits;
+    if synchronizeSlider
+        refreshColorbarPresentation(state.Colorbar);
+    else
+        restoreAutomaticColorbarTicks(state.Colorbar);
+    end
     fig.UserData = state;
     drawnow limitrate nocallbacks
 end
@@ -1768,6 +2496,11 @@ function renderSlice(fig, requestedIndex, synchronizeSlider)
     axis(state.Axes, 'image');
     state.Axes.XLim = [0.5, size(displayPlane, 2) + 0.5];
     state.Axes.YLim = [0.5, size(displayPlane, 1) + 0.5];
+    if synchronizeSlider
+        refreshColorbarPresentation(state.Colorbar);
+    else
+        restoreAutomaticColorbarTicks(state.Colorbar);
+    end
     fig.UserData = state;
     drawnow limitrate nocallbacks
 end
@@ -1781,7 +2514,6 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
         error('visualizeMatField:VolumeRequires3D', ...
             'Volume mode requires a real numeric 3-D array.');
     end
-    showSourceControl = ~opts.Specified.MatFile || ~opts.Specified.Variable;
     showModeControl = ~opts.Specified.PlotType;
     useExactIsoValues = opts.Specified.IsoValues;
     automaticModeSpecified = opts.Specified.NumIsosurfaces || opts.Specified.IsoRange;
@@ -1813,42 +2545,16 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
     fig = prepareViewerFigure(existingFig, figName, [120, 70, 1180, 830], opts.Visible);
     controlPanelHeight = baseControlPanelHeight + ...
         36 * double(showExactPlaybackInitially);
-    if showSourceControl
-        mainGrid = uigridlayout(fig, [3, 1]);
-        mainGrid.RowHeight = {sourceSelectorHeight(opts), '1x', controlPanelHeight};
-        plotRow = 2;
-        controlRow = 3;
-        [filePathEdit, browseButton, variableDropDown] = ...
-            addSourceSelector(mainGrid, opts, opts.Variable);
-    else
-        mainGrid = uigridlayout(fig, [2, 1]);
-        mainGrid.RowHeight = {'1x', controlPanelHeight};
-        plotRow = 1;
-        controlRow = 2;
-        filePathEdit = gobjects(0);
-        browseButton = gobjects(0);
-        variableDropDown = gobjects(0);
-    end
-    mainGrid.Padding = [18, 18, 18, 18];
-    mainGrid.RowSpacing = 8;
-
-    plotGrid = uigridlayout(mainGrid, [1, 1]);
-    plotGrid.Layout.Row = plotRow;
-    plotGrid.Padding = [0, 0, 0, 18];
-    plotGrid.RowSpacing = 0;
-    plotGrid.ColumnSpacing = 0;
-    ax = uiaxes(plotGrid);
-    ax.Box = 'on';
-    ax.FontName = 'Consolas';
-    ax.FontSize = 12;
-    ax.Toolbar.Visible = 'on';
-    colormap(ax, opts.Colormap);
-    cb = colorbar(ax);
-    cb.Label.String = 'Value';
-
-    controlPanel = uipanel(mainGrid, 'Title', '三维等值面控制', ...
-        'FontWeight', 'bold', 'BackgroundColor', [0.98, 0.98, 0.99]);
-    controlPanel.Layout.Row = controlRow;
+    shell = createViewerShell(fig, opts, opts.Variable, '三维等值面控制', ...
+        controlPanelHeight, true);
+    mainGrid = shell.MainGrid;
+    ax = shell.Axes;
+    cb = shell.Colorbar;
+    controlPanel = shell.ControlPanel;
+    filePathEdit = shell.FilePathEdit;
+    browseButton = shell.BrowseButton;
+    variableDropDown = shell.VariableDropDown;
+    controlRow = shell.ControlPanelRow;
     controls = uigridlayout(controlPanel, [5, 14]);
     controls.RowHeight = {28, 34 * double(showModeControl), ...
         36 * double(showIsoModeControl), 46 * double(showVolumeControlRow), ...
@@ -1858,6 +2564,7 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
     controls.Padding = [10, 14, 10, 8];
     controls.ColumnSpacing = 7;
     controls.RowSpacing = 6;
+    controls.Scrollable = 'on';
 
     variableLabel = uilabel(controls, ...
         'Text', sprintf('变量：%s', opts.Variable), 'FontWeight', 'bold');
@@ -1881,7 +2588,9 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
     samplingLabel.Layout.Row = 1;
     samplingLabel.Layout.Column = [10, 14];
 
+    modeText = gobjects(0);
     modeDropDown = gobjects(0);
+    modeHint = gobjects(0);
     if showModeControl
         modeText = uilabel(controls, 'Text', '绘图模式');
         modeText.Layout.Row = 2;
@@ -1898,7 +2607,9 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
         modeHint.Layout.Column = [5, 14];
     end
 
+    isoModeText = gobjects(0);
     isoModeDropDown = gobjects(0);
+    isoModeHint = gobjects(0);
     if showIsoModeControl
         isoModeText = uilabel(controls, 'Text', '等值面方式');
         isoModeText.Layout.Row = 3;
@@ -1916,6 +2627,7 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
     end
 
     automaticControls = {};
+    countText = gobjects(0);
     countSpinner = gobjects(0);
     if showCountControl
         countText = uilabel(controls, 'Text', '等值面数');
@@ -1928,7 +2640,9 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
         automaticControls = [automaticControls, {countText, countSpinner}];
     end
 
+    lowerText = gobjects(0);
     lowerEdit = gobjects(0);
+    upperText = gobjects(0);
     upperEdit = gobjects(0);
     if showRangeControl
         lowerText = uilabel(controls, 'Text', '范围下限%');
@@ -1962,6 +2676,7 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
         alphaSlider.Layout.Column = [8, 14];
     end
 
+    exactValueText = gobjects(0);
     exactValueEdit = gobjects(0);
     exactValueSlider = gobjects(0);
     exactControls = {};
@@ -1986,8 +2701,11 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
         exactControls = {exactValueText, exactValueEdit, exactValueSlider};
     end
 
+    playbackText = gobjects(0);
     playButton = gobjects(0);
+    intervalText = gobjects(0);
     playbackIntervalEdit = gobjects(0);
+    playbackHint = gobjects(0);
     playbackTimer = [];
     playbackControls = {};
     if showExactValueControl
@@ -2023,6 +2741,35 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
     setControlGroupVisible(exactControls, strcmp(isoSelectionMode, 'single'));
     setControlGroupVisible(playbackControls, showExactPlaybackInitially);
     setVolumeAlphaLayout(alphaText, alphaSlider, isoSelectionMode);
+
+    controlLayout = struct( ...
+        'Kind', 'volume', ...
+        'Grid', controls, ...
+        'VariableLabel', variableLabel, ...
+        'GlobalLabel', globalLabel, ...
+        'SamplingLabel', samplingLabel, ...
+        'ModeText', modeText, ...
+        'ModeDropDown', modeDropDown, ...
+        'ModeHint', modeHint, ...
+        'IsoModeText', isoModeText, ...
+        'IsoModeDropDown', isoModeDropDown, ...
+        'IsoModeHint', isoModeHint, ...
+        'CountText', countText, ...
+        'CountSpinner', countSpinner, ...
+        'LowerText', lowerText, ...
+        'LowerEdit', lowerEdit, ...
+        'UpperText', upperText, ...
+        'UpperEdit', upperEdit, ...
+        'ExactValueText', exactValueText, ...
+        'ExactValueEdit', exactValueEdit, ...
+        'ExactValueSlider', exactValueSlider, ...
+        'AlphaText', alphaText, ...
+        'AlphaSlider', alphaSlider, ...
+        'PlaybackText', playbackText, ...
+        'PlayButton', playButton, ...
+        'IntervalText', intervalText, ...
+        'PlaybackIntervalEdit', playbackIntervalEdit, ...
+        'PlaybackHint', playbackHint);
 
     if isnumeric(opts.ColorLimits)
         volumeClim = makeSafeLimits(opts.ColorLimits);
@@ -2074,7 +2821,8 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
         'ControlPanelRow', controlRow, ...
         'BaseControlPanelHeight', baseControlPanelHeight, ...
         'LastAlphaRenderClock', tic, ...
-        'Patches', gobjects(0));
+        'Patches', gobjects(0), ...
+        'Layout', makeViewerLayout(shell, controlLayout, 'volume'));
     fig.UserData = state;
 
     if ~isempty(modeDropDown) && isgraphics(modeDropDown)
@@ -2125,6 +2873,7 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
     end
 
     renderVolume(fig);
+    enableResponsiveViewerLayout(fig);
 end
 
 
@@ -2175,16 +2924,8 @@ function onIsoSelectionModeChanged(fig, source, ~)
         strcmp(state.IsoSelectionMode, 'single'));
     showPlayback = strcmp(state.IsoSelectionMode, 'single');
     setControlGroupVisible(state.PlaybackControls, showPlayback);
-    rowHeights = state.ControlsGrid.RowHeight;
-    rowHeights{5} = 36 * double(showPlayback);
-    state.ControlsGrid.RowHeight = rowHeights;
-    mainRowHeights = state.MainGrid.RowHeight;
-    mainRowHeights{state.ControlPanelRow} = ...
-        state.BaseControlPanelHeight + 36 * double(showPlayback);
-    state.MainGrid.RowHeight = mainRowHeights;
-    setVolumeAlphaLayout(state.AlphaText, state.AlphaSlider, ...
-        state.IsoSelectionMode);
     fig.UserData = state;
+    applyResponsiveViewerLayout(fig, true);
     renderVolume(fig);
 end
 
@@ -2513,6 +3254,7 @@ function renderVolume(fig)
     state = ensureVolumeInteractivity(state);
     fig.UserData = state;
     drawnow
+    refreshColorbarPresentation(state.Colorbar);
 end
 
 
@@ -2590,6 +3332,48 @@ function configureCompactValueSliderTicks(slider, valueRange)
     slider.MajorTicks = ticks;
     slider.MajorTickLabels = arrayfun(@formatNumber, ticks, 'UniformOutput', false);
     slider.MinorTicks = [];
+end
+
+
+function refreshColorbarPresentation(colorbarHandle)
+    if ~hasGraphics(colorbarHandle)
+        return
+    end
+    drawnow limitrate nocallbacks
+    ticks = colorbarHandle.Ticks;
+    if isempty(ticks)
+        return
+    end
+
+    precision = 7;
+    labels = formatTickValues(ticks, precision);
+    while numel(unique(labels)) < numel(labels) && precision < 9
+        precision = precision + 1;
+        labels = formatTickValues(ticks, precision);
+    end
+    try
+        colorbarHandle.Ruler.Exponent = 0;
+    catch
+        % Older releases can omit the public numeric-ruler handle.
+    end
+    colorbarHandle.TickLabels = labels;
+    colorbarHandle.TickLabelInterpreter = 'none';
+    colorbarHandle.FontName = 'Consolas';
+    colorbarHandle.FontSize = 11;
+end
+
+
+function restoreAutomaticColorbarTicks(colorbarHandle)
+    if hasGraphics(colorbarHandle)
+        colorbarHandle.TickLabelsMode = 'auto';
+    end
+end
+
+
+function labels = formatTickValues(values, precision)
+    formatSpec = sprintf('%%.%dg', precision);
+    labels = arrayfun(@(value) sprintf(formatSpec, value), ...
+        values, 'UniformOutput', false);
 end
 
 

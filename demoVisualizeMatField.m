@@ -1,5 +1,8 @@
 %% visualizeMatField usage examples
 % Run one section at a time (Ctrl+Enter in the MATLAB Editor).
+% The viewer uses one responsive shell for the source selector, plot area,
+% and controls. Resizing the window reflows controls without reloading data,
+% recreating the axes, or resetting the current 3-D view.
 
 %% 0. Select both the MAT file and target variable inside the viewer
 % With no positional inputs, the image starts empty. Enter an absolute or
