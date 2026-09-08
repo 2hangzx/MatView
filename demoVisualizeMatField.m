@@ -33,6 +33,14 @@ visualizeMatField(matFile, 'rho.rho_XYZ');
 % visualizeMatField(matFile, 'GD.gradNorm_XYZ', ...
 %     'PlotType', 'slice', 'Dimension', 1);
 
+%% 3a. Fixed or interactive colorbar limits
+% Explicit ColorLimits fixes the range and hides the corresponding UI.
+% When ColorLimits is omitted, select "指定范围" in the Slice control panel
+% to enable exact lower/upper inputs and two coarse-adjustment sliders.
+% Confirmed edits and slider drags update the image immediately.
+% visualizeMatField(matFile, 'T.T_XYZ', ...
+%     'PlotType', 'slice', 'ColorLimits', [400, 1800]);
+
 %% 4. Three-dimensional multi-isosurface view
 % visualizeMatField(matFile, 'rho.rho_XYZ', 'PlotType', 'volume');
 

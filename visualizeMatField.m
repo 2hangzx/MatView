@@ -823,7 +823,8 @@ function fig = createVariableSelectionFigure(opts, existingFig)
             showColor = ~opts.Specified.ColorLimits;
             showControlRow = showDimension || showIndex || showColor;
             panelHeight = 100 + 34 * double(showMode) + ...
-                42 * double(showControlRow) + 36 * double(showIndex);
+                42 * double(showControlRow) + 42 * double(showColor) + ...
+                36 * double(showIndex);
             figName = '请选择目标变量 | slice';
             panelTitle = '切片控制';
         case 'volume'
@@ -897,10 +898,12 @@ function createDisabledSliceControls(controlPanel, opts)
     showColor = ~opts.Specified.ColorLimits;
     showControlRow = showDimension || showIndex || showColor;
 
-    controls = uigridlayout(controlPanel, [4, 10]);
+    controls = uigridlayout(controlPanel, [5, 14]);
     controls.RowHeight = {28, 34 * double(showMode), ...
-        42 * double(showControlRow), 36 * double(showIndex)};
-    controls.ColumnWidth = {62, 130, 42, '1x', '1x', '1x', 72, 24, 60, 145};
+        42 * double(showControlRow), 42 * double(showColor), ...
+        36 * double(showIndex)};
+    controls.ColumnWidth = {62, 130, 42, '1x', '1x', '1x', ...
+        72, 16, 72, 120, 34, 80, 34, 80};
     controls.Padding = [10, 14, 10, 8];
     controls.ColumnSpacing = 7;
     controls.RowSpacing = 6;
@@ -910,10 +913,10 @@ function createDisabledSliceControls(controlPanel, opts)
     pending.Layout.Column = [1, 3];
     globalLabel = uilabel(controls, 'Text', '全局 [min, max]：-- / --');
     globalLabel.Layout.Row = 1;
-    globalLabel.Layout.Column = [4, 5];
+    globalLabel.Layout.Column = [4, 7];
     sliceLabel = uilabel(controls, 'Text', '切片 [min, max]：-- / --');
     sliceLabel.Layout.Row = 1;
-    sliceLabel.Layout.Column = [6, 10];
+    sliceLabel.Layout.Column = [8, 14];
 
     if showMode
         label = uilabel(controls, 'Text', '绘图模式');
@@ -946,20 +949,49 @@ function createDisabledSliceControls(controlPanel, opts)
         edit.Layout.Row = 3;
         edit.Layout.Column = 7;
         play = uibutton(controls, 'Text', '播放', 'Enable', 'off');
-        play.Layout.Row = 4;
+        play.Layout.Row = 5;
         play.Layout.Column = 2;
         interval = uieditfield(controls, 'numeric', 'Value', 0.12, 'Enable', 'off');
-        interval.Layout.Row = 4;
+        interval.Layout.Row = 5;
         interval.Layout.Column = 4;
     end
     if showColor
-        label = uilabel(controls, 'Text', '颜色栏');
+        label = uilabel(controls, 'Text', '颜色栏范围');
         label.Layout.Row = 3;
         label.Layout.Column = 9;
         control = uidropdown(controls, 'Items', {'全局范围'}, ...
             'Value', '全局范围', 'Enable', 'off');
         control.Layout.Row = 3;
         control.Layout.Column = 10;
+        label = uilabel(controls, 'Text', '下限', 'Enable', 'off');
+        label.Layout.Row = 3;
+        label.Layout.Column = 11;
+        lower = uieditfield(controls, 'numeric', ...
+            'Value', 0, 'Enable', 'off');
+        lower.Layout.Row = 3;
+        lower.Layout.Column = 12;
+        label = uilabel(controls, 'Text', '上限', 'Enable', 'off');
+        label.Layout.Row = 3;
+        label.Layout.Column = 13;
+        upper = uieditfield(controls, 'numeric', ...
+            'Value', 1, 'Enable', 'off');
+        upper.Layout.Row = 3;
+        upper.Layout.Column = 14;
+
+        label = uilabel(controls, 'Text', '下限粗调', 'Enable', 'off');
+        label.Layout.Row = 4;
+        label.Layout.Column = [1, 2];
+        lowerSlider = uislider(controls, 'Limits', [0, 1], ...
+            'Value', 0, 'Enable', 'off');
+        lowerSlider.Layout.Row = 4;
+        lowerSlider.Layout.Column = [3, 7];
+        label = uilabel(controls, 'Text', '上限粗调', 'Enable', 'off');
+        label.Layout.Row = 4;
+        label.Layout.Column = [8, 9];
+        upperSlider = uislider(controls, 'Limits', [0, 1], ...
+            'Value', 1, 'Enable', 'off');
+        upperSlider.Layout.Row = 4;
+        upperSlider.Layout.Column = [10, 14];
     end
 end
 
@@ -1194,7 +1226,8 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
     figName = sprintf('%s | slice', opts.Variable);
     fig = prepareViewerFigure(existingFig, figName, [120, 80, 1120, 800], opts.Visible);
     controlPanelHeight = 100 + 34 * double(showModeControl) + ...
-        42 * double(showSliceControlRow) + 36 * double(showPlaybackControl);
+        42 * double(showSliceControlRow) + 42 * double(showColorControl) + ...
+        36 * double(showPlaybackControl);
     if showSourceControl
         mainGrid = uigridlayout(fig, [3, 1]);
         mainGrid.RowHeight = {sourceSelectorHeight(opts), '1x', controlPanelHeight};
@@ -1231,10 +1264,12 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
     controlPanel = uipanel(mainGrid, 'Title', '切片控制', ...
         'FontWeight', 'bold', 'BackgroundColor', [0.98, 0.98, 0.99]);
     controlPanel.Layout.Row = controlRow;
-    controls = uigridlayout(controlPanel, [4, 10]);
+    controls = uigridlayout(controlPanel, [5, 14]);
     controls.RowHeight = {28, 34 * double(showModeControl), ...
-        42 * double(showSliceControlRow), 36 * double(showPlaybackControl)};
-    controls.ColumnWidth = {62, 130, 42, '1x', '1x', '1x', 72, 24, 60, 145};
+        42 * double(showSliceControlRow), 42 * double(showColorControl), ...
+        36 * double(showPlaybackControl)};
+    controls.ColumnWidth = {62, 130, 42, '1x', '1x', '1x', ...
+        72, 16, 72, 120, 34, 80, 34, 80};
     controls.Padding = [10, 14, 10, 8];
     controls.ColumnSpacing = 7;
     controls.RowSpacing = 6;
@@ -1249,11 +1284,11 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
         'Text', sprintf('全局 [min, max]：%s / %s', ...
         formatNumber(globalRange(1)), formatNumber(globalRange(2))));
     globalLabel.Layout.Row = 1;
-    globalLabel.Layout.Column = [4, 5];
+    globalLabel.Layout.Column = [4, 7];
 
     sliceLabel = uilabel(controls, 'Text', '切片 [min, max]：-- / --');
     sliceLabel.Layout.Row = 1;
-    sliceLabel.Layout.Column = [6, 10];
+    sliceLabel.Layout.Column = [8, 14];
 
     modeDropDown = gobjects(0);
     if showModeControl
@@ -1269,7 +1304,7 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
             'Text', '切换模式会立即复用当前数据重新绘图，无需重新加载 MAT 文件。', ...
             'FontColor', [0.35, 0.35, 0.38]);
         modeHint.Layout.Row = 2;
-        modeHint.Layout.Column = [5, 10];
+        modeHint.Layout.Column = [5, 14];
     end
 
     dimDropDown = gobjects(0);
@@ -1308,23 +1343,23 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
     playbackTimer = [];
     if showPlaybackControl
         playbackText = uilabel(controls, 'Text', '自动播放');
-        playbackText.Layout.Row = 4;
+        playbackText.Layout.Row = 5;
         playbackText.Layout.Column = 1;
         playButton = uibutton(controls, 'push', 'Text', '播放');
-        playButton.Layout.Row = 4;
+        playButton.Layout.Row = 5;
         playButton.Layout.Column = 2;
         intervalText = uilabel(controls, 'Text', '间隔(s)');
-        intervalText.Layout.Row = 4;
+        intervalText.Layout.Row = 5;
         intervalText.Layout.Column = 3;
         playbackIntervalEdit = uieditfield(controls, 'numeric', ...
             'Limits', [0.03, 10], 'ValueDisplayFormat', '%.2f', 'Value', 0.12);
-        playbackIntervalEdit.Layout.Row = 4;
+        playbackIntervalEdit.Layout.Row = 5;
         playbackIntervalEdit.Layout.Column = 4;
         playbackHint = uilabel(controls, ...
             'Text', '从当前索引向后播放，到末尾后从 1 循环。', ...
             'FontColor', [0.35, 0.35, 0.38]);
-        playbackHint.Layout.Row = 4;
-        playbackHint.Layout.Column = [5, 10];
+        playbackHint.Layout.Row = 5;
+        playbackHint.Layout.Column = [5, 14];
         playbackTimer = timer('ExecutionMode', 'fixedSpacing', ...
             'BusyMode', 'drop', 'Period', playbackIntervalEdit.Value, ...
             'TimerFcn', @(source, event) advanceSlicePlayback(fig, source, event));
@@ -1335,26 +1370,74 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
         customClim = makeSafeLimits(opts.ColorLimits);
     else
         colorMode = opts.ColorLimits;
-        customClim = [];
+        customClim = makeSafeLimits(globalRange);
     end
 
     colorDropDown = gobjects(0);
+    colorLowerText = gobjects(0);
+    colorLowerEdit = gobjects(0);
+    colorUpperText = gobjects(0);
+    colorUpperEdit = gobjects(0);
+    colorLowerSliderText = gobjects(0);
+    colorLowerSlider = gobjects(0);
+    colorUpperSliderText = gobjects(0);
+    colorUpperSlider = gobjects(0);
     if showColorControl
-        colorText = uilabel(controls, 'Text', '颜色栏');
+        colorText = uilabel(controls, 'Text', '颜色栏范围');
         colorText.Layout.Row = 3;
         colorText.Layout.Column = 9;
-        colorDropDown = uidropdown(controls);
+        colorDropDown = uidropdown(controls, ...
+            'Items', {'全局范围', '当前切片', '指定范围'}, ...
+            'ItemsData', {'global', 'slice', 'custom'}, ...
+            'Value', colorMode);
         colorDropDown.Layout.Row = 3;
         colorDropDown.Layout.Column = 10;
-        if isnumeric(opts.ColorLimits)
-            colorDropDown.Items = {'全局范围', '当前切片', '固定输入范围'};
-            colorDropDown.ItemsData = {'global', 'slice', 'custom'};
-            colorDropDown.Value = 'custom';
-        else
-            colorDropDown.Items = {'全局范围', '当前切片'};
-            colorDropDown.ItemsData = {'global', 'slice'};
-            colorDropDown.Value = opts.ColorLimits;
-        end
+
+        colorLowerText = uilabel(controls, 'Text', '下限');
+        colorLowerText.Layout.Row = 3;
+        colorLowerText.Layout.Column = 11;
+        colorLowerEdit = uieditfield(controls, 'numeric', ...
+            'ValueDisplayFormat', '%.6g', 'Value', customClim(1));
+        colorLowerEdit.Layout.Row = 3;
+        colorLowerEdit.Layout.Column = 12;
+
+        colorUpperText = uilabel(controls, 'Text', '上限');
+        colorUpperText.Layout.Row = 3;
+        colorUpperText.Layout.Column = 13;
+        colorUpperEdit = uieditfield(controls, 'numeric', ...
+            'ValueDisplayFormat', '%.6g', 'Value', customClim(2));
+        colorUpperEdit.Layout.Row = 3;
+        colorUpperEdit.Layout.Column = 14;
+
+        sliderLimits = makeSafeLimits([min(globalRange(1), customClim(1)), ...
+            max(globalRange(2), customClim(2))]);
+        colorLowerSliderText = uilabel(controls, 'Text', '下限粗调');
+        colorLowerSliderText.Layout.Row = 4;
+        colorLowerSliderText.Layout.Column = [1, 2];
+        colorLowerSlider = uislider(controls, 'Limits', sliderLimits, ...
+            'Value', customClim(1));
+        colorLowerSlider.Layout.Row = 4;
+        colorLowerSlider.Layout.Column = [3, 7];
+        configureCompactValueSliderTicks(colorLowerSlider, sliderLimits);
+
+        colorUpperSliderText = uilabel(controls, 'Text', '上限粗调');
+        colorUpperSliderText.Layout.Row = 4;
+        colorUpperSliderText.Layout.Column = [8, 9];
+        colorUpperSlider = uislider(controls, 'Limits', sliderLimits, ...
+            'Value', customClim(2));
+        colorUpperSlider.Layout.Row = 4;
+        colorUpperSlider.Layout.Column = [10, 14];
+        configureCompactValueSliderTicks(colorUpperSlider, sliderLimits);
+
+        customControlsEnabled = strcmp(colorMode, 'custom');
+        setControlEnabled(colorLowerText, customControlsEnabled);
+        setControlEnabled(colorLowerEdit, customControlsEnabled);
+        setControlEnabled(colorUpperText, customControlsEnabled);
+        setControlEnabled(colorUpperEdit, customControlsEnabled);
+        setControlEnabled(colorLowerSliderText, customControlsEnabled);
+        setControlEnabled(colorLowerSlider, customControlsEnabled);
+        setControlEnabled(colorUpperSliderText, customControlsEnabled);
+        setControlEnabled(colorUpperSlider, customControlsEnabled);
     end
 
     state = struct( ...
@@ -1381,6 +1464,14 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
         'IndexSlider', indexSlider, ...
         'IndexEdit', indexEdit, ...
         'ColorDropDown', colorDropDown, ...
+        'ColorLowerText', colorLowerText, ...
+        'ColorLowerEdit', colorLowerEdit, ...
+        'ColorUpperText', colorUpperText, ...
+        'ColorUpperEdit', colorUpperEdit, ...
+        'ColorLowerSliderText', colorLowerSliderText, ...
+        'ColorLowerSlider', colorLowerSlider, ...
+        'ColorUpperSliderText', colorUpperSliderText, ...
+        'ColorUpperSlider', colorUpperSlider, ...
         'SliceLabel', sliceLabel, ...
         'PlayButton', playButton, ...
         'PlaybackIntervalEdit', playbackIntervalEdit, ...
@@ -1416,6 +1507,18 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
     end
     if ~isempty(colorDropDown) && isgraphics(colorDropDown)
         colorDropDown.ValueChangedFcn = @(source, event) onSliceColorModeChanged(fig, source, event);
+        colorLowerEdit.ValueChangedFcn = ...
+            @(source, event) onSliceColorLimitEdited(fig, source, event);
+        colorUpperEdit.ValueChangedFcn = ...
+            @(source, event) onSliceColorLimitEdited(fig, source, event);
+        colorLowerSlider.ValueChangingFcn = @(source, event) ...
+            onSliceColorLimitSlider(fig, 'lower', event.Value, false);
+        colorLowerSlider.ValueChangedFcn = @(source, event) ...
+            onSliceColorLimitSlider(fig, 'lower', source.Value, true);
+        colorUpperSlider.ValueChangingFcn = @(source, event) ...
+            onSliceColorLimitSlider(fig, 'upper', event.Value, false);
+        colorUpperSlider.ValueChangedFcn = @(source, event) ...
+            onSliceColorLimitSlider(fig, 'upper', source.Value, true);
     end
 
     renderSlice(fig, index);
@@ -1497,8 +1600,88 @@ function onSliceColorModeChanged(fig, source, ~)
     end
     state = fig.UserData;
     state.ColorMode = source.Value;
+    customEnabled = strcmp(state.ColorMode, 'custom');
+    setControlEnabled(state.ColorLowerText, customEnabled);
+    setControlEnabled(state.ColorLowerEdit, customEnabled);
+    setControlEnabled(state.ColorUpperText, customEnabled);
+    setControlEnabled(state.ColorUpperEdit, customEnabled);
+    setControlEnabled(state.ColorLowerSliderText, customEnabled);
+    setControlEnabled(state.ColorLowerSlider, customEnabled);
+    setControlEnabled(state.ColorUpperSliderText, customEnabled);
+    setControlEnabled(state.ColorUpperSlider, customEnabled);
     fig.UserData = state;
     renderSlice(fig, state.Index);
+end
+
+
+function onSliceColorLimitEdited(fig, ~, ~)
+    if ~isvalid(fig)
+        return
+    end
+    state = fig.UserData;
+    requestedLimits = [state.ColorLowerEdit.Value, state.ColorUpperEdit.Value];
+    if any(~isfinite(requestedLimits)) || requestedLimits(1) >= requestedLimits(2)
+        state.ColorLowerEdit.Value = state.CustomClim(1);
+        state.ColorUpperEdit.Value = state.CustomClim(2);
+        showViewerAlert(fig, '颜色栏范围下限必须是小于上限的有限数值。', ...
+            '颜色栏范围无效');
+        return
+    end
+
+    state.CustomClim = double(requestedLimits);
+    state.ColorMode = 'custom';
+    state.ColorDropDown.Value = 'custom';
+    state = synchronizeSliceColorSliders(state);
+    fig.UserData = state;
+    renderSlice(fig, state.Index);
+end
+
+
+function onSliceColorLimitSlider(fig, boundName, requestedValue, synchronizeSlider)
+    if ~isvalid(fig)
+        return
+    end
+    state = fig.UserData;
+    limits = state.CustomClim;
+    sliderSpan = diff(state.ColorLowerSlider.Limits);
+    scale = max([abs(limits), abs(requestedValue), 1]);
+    minimumGap = min(max(8 * eps(scale), sliderSpan * 1e-9), diff(limits));
+    switch boundName
+        case 'lower'
+            limits(1) = min(double(requestedValue), limits(2) - minimumGap);
+            state.ColorLowerEdit.Value = limits(1);
+            if synchronizeSlider
+                state.ColorLowerSlider.Value = limits(1);
+            end
+        case 'upper'
+            limits(2) = max(double(requestedValue), limits(1) + minimumGap);
+            state.ColorUpperEdit.Value = limits(2);
+            if synchronizeSlider
+                state.ColorUpperSlider.Value = limits(2);
+            end
+    end
+
+    state.CustomClim = limits;
+    state.ColorMode = 'custom';
+    state.ColorDropDown.Value = 'custom';
+    state.Axes.CLim = limits;
+    fig.UserData = state;
+    drawnow limitrate nocallbacks
+end
+
+
+function state = synchronizeSliceColorSliders(state)
+    sliderLimits = [min([state.ColorLowerSlider.Limits(1), ...
+        state.GlobalRange(1), state.CustomClim(1)]), ...
+        max([state.ColorUpperSlider.Limits(2), ...
+        state.GlobalRange(2), state.CustomClim(2)])];
+    sliderLimits = makeSafeLimits(sliderLimits);
+    state.ColorLowerSlider.Limits = sliderLimits;
+    state.ColorUpperSlider.Limits = sliderLimits;
+    state.ColorLowerSlider.Value = state.CustomClim(1);
+    state.ColorUpperSlider.Value = state.CustomClim(2);
+    configureCompactValueSliderTicks(state.ColorLowerSlider, sliderLimits);
+    configureCompactValueSliderTicks(state.ColorUpperSlider, sliderLimits);
 end
 
 
@@ -1530,8 +1713,8 @@ function renderSlice(fig, requestedIndex, synchronizeSlider)
     end
 
     % Transpose so that the first remaining array dimension is horizontal
-    % and the second is vertical, rather than silently treating matrix rows
-    % as a physical X coordinate.
+    % and the second is vertical, rather than silently assigning coordinate
+    % meaning to matrix rows.
     displayPlane = plane.';
 
     if isempty(state.Image) || ~isgraphics(state.Image)
@@ -2166,6 +2349,18 @@ function setControlGroupVisible(controls, isVisible)
 end
 
 
+function setControlEnabled(control, isEnabled)
+    if isempty(control) || ~isgraphics(control)
+        return
+    end
+    enabled = 'off';
+    if isEnabled
+        enabled = 'on';
+    end
+    control.Enable = enabled;
+end
+
+
 function setVolumeAlphaLayout(alphaText, alphaSlider, isoSelectionMode)
     if isempty(alphaSlider) || ~isgraphics(alphaSlider)
         return
@@ -2384,6 +2579,14 @@ end
 
 function configureValueSliderTicks(slider, valueRange)
     ticks = unique(linspace(valueRange(1), valueRange(2), 5));
+    slider.MajorTicks = ticks;
+    slider.MajorTickLabels = arrayfun(@formatNumber, ticks, 'UniformOutput', false);
+    slider.MinorTicks = [];
+end
+
+
+function configureCompactValueSliderTicks(slider, valueRange)
+    ticks = unique(linspace(valueRange(1), valueRange(2), 3));
     slider.MajorTicks = ticks;
     slider.MajorTickLabels = arrayfun(@formatNumber, ticks, 'UniformOutput', false);
     slider.MinorTicks = [];
