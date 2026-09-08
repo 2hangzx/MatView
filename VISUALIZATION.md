@@ -1,9 +1,9 @@
 # 通用 MAT 二维/三维场可视化
 
-主入口是 `visualizeMatField.m`。每次调用必须明确传入 MAT 文件，目标变量路径可以省略。
-脚本不依赖 `data_uniGrid_zFlowDirct.mat` 的固定字段结构，会递归发现顶层或嵌套标量
-structure 中符合规则的数组。省略变量时先显示变量选择界面；绘图模式及其下级参数也
-可以省略。三维变量未指定绘图模式时默认使用多等值面，二维变量则自动使用 Slice。
+主入口是 `visualizeMatField.m`。MAT 文件和目标变量路径都可以省略。未指定 MAT 文件时，
+窗口先提供路径输入框和“浏览…”按钮；文件有效后变量下拉框才会启用。脚本不依赖
+`data_uniGrid_zFlowDirct.mat` 的固定字段结构，会递归发现顶层或嵌套标量 structure 中
+符合规则的数组。三维变量未指定绘图模式时默认使用多等值面，二维变量自动使用 Slice。
 
 ## 目标变量规则
 
@@ -23,6 +23,12 @@ structure 都不会进入目标变量下拉列表。二维与三维目标的各�
 ```matlab
 cd('D:\myDocuments\BUAA\NeRF-RI\CFDdata\SwirlFlame')
 matFile = fullfile(pwd, 'Data', 'data_uniGrid_zFlowDirct.mat');
+
+% 不传参数：先在窗口中选择 MAT 文件，再选择目标变量
+visualizeMatField()
+
+% 不指定 MAT 文件，但预先固定绘图模式
+visualizeMatField('PlotType', 'slice')
 
 % 只指定 MAT 文件：先在窗口顶部选择目标变量
 visualizeMatField(matFile)
@@ -56,16 +62,23 @@ visualizeMatField(matFile, 'T.T_XYZ', ...
 
 ## 传参规范
 
-统一调用形式为：
+支持以下规范调用形式：
 
 ```matlab
+visualizeMatField()
+visualizeMatField(Name, Value, ...)
+visualizeMatField(matFile)
+visualizeMatField(matFile, variablePath)
 visualizeMatField(matFile, [variablePath], Name, Value, ...)
 ```
 
-- `matFile` 是必需的第一个位置参数。
-- `variablePath` 是可选的第二个位置参数，可以是顶层名称或嵌套点分路径；省略时由
-  窗口中的下拉框选择。
-- Name-Value 位于变量路径之后；省略变量路径时可以紧跟在 `matFile` 后面，排列顺序任意。
+- `matFile` 是可选的第一个位置参数，只接受绝对路径或相对于 MATLAB 当前工作目录的路径。
+- `variablePath` 是可选的第二个位置参数，可以是顶层名称或嵌套点分路径；它只能出现在
+  已经提供 `matFile` 的情况下。
+- `matFile` 和 `variablePath` 都不提供时，Name-Value 可以从第一个参数开始。
+- 已提供 `matFile`、但省略 `variablePath` 时，Name-Value 可以紧跟在 `matFile` 后面。
+- `matFile` 和 `variablePath` 只使用位置传参，不提供同名 Name-Value 写法。
+- Name-Value 的排列顺序任意。
 - 同一个参数不同时支持位置与 Name-Value 两套写法，避免无法判断用户是否显式指定。
 - 参数名称大小写不敏感，但必须写完整，不接受 `PlotT` 等缩写。
 
@@ -78,16 +91,26 @@ visualizeMatField('Data/data_uniGrid_zFlowDirct.mat', 'n.gradX_XYZ', ...
     'Index', 60)
 ```
 
-也可以在未指定变量时预先固定绘图模式：
+也可以在文件和变量均未指定时预先固定绘图模式：
 
 ```matlab
-visualizeMatField(matFile, 'PlotType', 'slice', 'Dimension', 2)
+visualizeMatField('PlotType', 'slice', 'Dimension', 2)
 ```
 
-## 变量选择
+## MAT 文件与变量选择
 
+- 未指定 `matFile` 时，窗口顶部显示 MAT 文件路径输入框、“浏览…”按钮和禁用的变量
+  下拉框，图像区为空，控制台全部禁用。
+- 路径输入框与命令行参数使用相同的解析规则：支持绝对路径，也支持相对于 MATLAB 当前
+  工作目录的路径。确认输入后立即检查文件并发现合法变量。
+- “浏览…”按钮打开 MATLAB 原生文件选择窗口，并限制选择 `*.mat` 文件。
+- 文件有效且存在符合当前参数要求的目标数组后，变量下拉框自动启用，但不会擅自选择
+  变量或开始绘图。
+- 如果在已经绘图后更换 MAT 文件，当前图像会清空，控制台重新禁用，并进入新文件的
+  变量选择阶段。
+- 命令行已明确指定 `matFile` 时不显示文件路径输入框和“浏览…”按钮。
 - 未在命令行指定 `variablePath` 时，窗口顶部显示“目标变量”下拉框，图像区初始为空。
-- 首次选择变量之前，当前绘图模式下的控制台选项全部禁用；只有目标变量下拉框可操作。
+- 首次选择变量之前，当前绘图模式下的控制台选项全部禁用。
 - 选择变量后会立即加载该数组，更新完整数据范围、采样信息及相关控件并自动绘图。
 - 更换目标变量同样立即更新，不需要“重新绘图”按钮。
 - 在 Slice 模式更换不同尺寸的数组时，尽量保持原切片在所选维度中的相对位置。
@@ -164,8 +187,17 @@ visualizeMatField(matFile, 'rho.rho_XYZ', 'PlotType', 'volume', ...
 Volume 绘图区会为标题、三维坐标框和刻度预留边距，初始视角也会自动后退，避免最大化
 窗口时上下内容被裁切；坐标范围固定覆盖完整的绘制采样域，不会随等值面范围跳变。
 
-参数严格按层级校验：`Index` 依赖 `Dimension`，切片参数依赖显式的 `slice/figure`
-模式，等值面参数依赖显式的 `volume` 模式。缺少上级选择会直接给出说明性错误。
+参数严格按以下层级处理：
+
+1. `matFile` 决定数据来源；省略时必须先在窗口中选择文件。
+2. `variablePath` 依赖 `matFile`；省略时必须在文件验证成功后使用变量下拉框选择。
+3. `PlotType` 依赖目标变量的维数：二维变量只能 Slice，三维变量可以 Slice 或 Volume。
+4. `Dimension` 依赖显式的 Slice 模式；`Index` 进一步依赖显式的 `Dimension`。
+5. `NumIsosurfaces`、`IsoRange`、`IsoValues`、`SurfaceAlpha` 和 `MaxRenderSize` 依赖显式的
+   Volume 模式；`IsoValues` 与自动多层的数量/范围参数互斥。
+
+文件或变量可以留给 UI 后续选择，但命令行中的下级参数仍必须满足上述依赖；缺少必需的
+上级模式参数会立即给出说明性错误。
 
 其他方案的适用范围：
 

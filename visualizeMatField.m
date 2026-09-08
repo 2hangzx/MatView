@@ -1,7 +1,8 @@
-function fig = visualizeMatField(matFile, varargin)
+function fig = visualizeMatField(varargin)
 %VISUALIZEMATFIELD Interactively inspect a 2-D or 3-D numeric MAT variable.
 %
 % Basic usage
+%   visualizeMatField()
 %   visualizeMatField('Data/data_uniGrid_zFlowDirct.mat')
 %   visualizeMatField('Data/data_uniGrid_zFlowDirct.mat', 'rho.rho_XYZ')
 %   visualizeMatField('Data/data_uniGrid_zFlowDirct.mat', 'T.T_XYZ', ...
@@ -17,7 +18,8 @@ function fig = visualizeMatField(matFile, varargin)
 %   If PlotType is omitted, it can be changed from inside the viewer.
 %
 % Positional input
-%   matFile           First positional argument: MAT-file path.
+%   matFile           Optional first positional argument: MAT-file path. If
+%                     omitted, enter a path or browse for a file in the UI.
 %   variablePath      Optional second positional argument: dot-separated
 %                     path to a real numeric 2-D/3-D array. Top-level and
 %                     arbitrarily nested scalar-struct fields are accepted.
@@ -52,21 +54,22 @@ function fig = visualizeMatField(matFile, varargin)
 %   tools in the UIAxes hover toolbar. Default 3-D mouse interactions are
 %   also enabled.
 
-    if nargin < 1
-        error('visualizeMatField:MatFileRequired', ...
-            'The first positional input must be a MAT-file path.');
+    [matFile, matFileSpecified, variablePath, variableSpecified, ...
+        optionalInputs] = splitViewerInputs(varargin);
+    opts = parseViewerInputs(matFile, matFileSpecified, variablePath, ...
+        variableSpecified, optionalInputs{:});
+    if matFileSpecified
+        opts.MatFile = resolveMatFile(opts.MatFile);
     end
-    [variablePath, variableSpecified, optionalInputs] = ...
-        splitVariableInput(varargin);
-    opts = parseViewerInputs(matFile, variablePath, variableSpecified, ...
-        optionalInputs{:});
-    opts.MatFile = resolveMatFile(opts.MatFile);
 
     if ~variableSpecified
-        variableInfo = listSelectableVariables(opts.MatFile, opts);
+        variableInfo = emptyVariableInfo();
+        if matFileSpecified
+            variableInfo = listSelectableVariables(opts.MatFile, opts);
+        end
         opts.AvailableVariables = {variableInfo.Path};
         opts.AvailableVariableInfo = variableInfo;
-        if isempty(opts.AvailableVariables)
+        if matFileSpecified && isempty(opts.AvailableVariables)
             error('visualizeMatField:NoSelectableVariables', ...
                 ['The MAT file contains no compatible real numeric 2-D/3-D ', ...
                  'arrays for the requested plotting options.']);
@@ -99,10 +102,13 @@ function fig = visualizeMatField(matFile, varargin)
 end
 
 
-function [variablePath, variableSpecified, optionalInputs] = splitVariableInput(inputs)
+function [matFile, matFileSpecified, variablePath, variableSpecified, ...
+        optionalInputs] = splitViewerInputs(inputs)
     optionNames = ["PlotType", "Dimension", "Index", "Colormap", ...
         "ColorLimits", "NumIsosurfaces", "IsoRange", "IsoValues", ...
         "SurfaceAlpha", "MaxRenderSize", "Visible"];
+    matFile = '';
+    matFileSpecified = false;
     variablePath = '';
     variableSpecified = false;
     optionalInputs = inputs;
@@ -115,19 +121,35 @@ function [variablePath, variableSpecified, optionalInputs] = splitVariableInput(
         optionalInputs = inputs(2:end);
     elseif isTextScalar(firstInput) && ...
             any(strcmpi(string(firstInput), optionNames))
+        % The optional Name-Value list starts without positional inputs.
+    else
+        matFile = firstInput;
+        matFileSpecified = true;
+        optionalInputs = inputs(2:end);
+    end
+
+    if ~matFileSpecified || isempty(optionalInputs)
+        return
+    end
+    firstInput = optionalInputs{1};
+    if isempty(firstInput)
+        optionalInputs = optionalInputs(2:end);
+    elseif isTextScalar(firstInput) && ...
+            any(strcmpi(string(firstInput), optionNames))
         % The optional Name-Value list starts immediately after matFile.
     else
         variablePath = firstInput;
         variableSpecified = true;
-        optionalInputs = inputs(2:end);
+        optionalInputs = optionalInputs(2:end);
     end
 end
 
 
-function opts = parseViewerInputs(matFile, variablePath, variableSpecified, varargin)
+function opts = parseViewerInputs(matFile, matFileSpecified, variablePath, ...
+        variableSpecified, varargin)
     plotTypeNames = ["slice", "figure", "volume", "3d", "isosurface"];
 
-    if ~isTextScalar(matFile)
+    if matFileSpecified && ~isTextScalar(matFile)
         error('visualizeMatField:InvalidMatFile', ...
             'The first positional input matFile must be a character vector or string scalar.');
     end
@@ -135,10 +157,10 @@ function opts = parseViewerInputs(matFile, variablePath, variableSpecified, vara
         error('visualizeMatField:InvalidVariable', ...
             'The second positional input variablePath must be a character vector or string scalar.');
     end
-    if strcmpi(strtrim(char(matFile)), 'MatFile')
+    if matFileSpecified && strcmpi(strtrim(char(matFile)), 'MatFile')
         error('visualizeMatField:RequiredInputsMustBePositional', ...
-            ['matFile is a required positional input; variablePath is an optional ', ...
-             'second positional input. Use visualizeMatField(matFile, ', ...
+            ['matFile and variablePath are optional positional inputs, not ', ...
+             'Name-Value parameters. Use visualizeMatField([matFile], ', ...
              '[variablePath], Name, Value, ...).']);
     end
     if ~isempty(varargin) && isTextScalar(varargin{1}) && ...
@@ -178,6 +200,7 @@ function opts = parseViewerInputs(matFile, variablePath, variableSpecified, vara
     usingDefaults = parser.UsingDefaults;
     opts = parser.Results;
     opts.Specified = struct( ...
+        'MatFile', matFileSpecified, ...
         'Variable', variableSpecified, ...
         'PlotType', ~ismember('PlotType', usingDefaults), ...
         'Dimension', ~ismember('Dimension', usingDefaults), ...
@@ -188,10 +211,10 @@ function opts = parseViewerInputs(matFile, variablePath, variableSpecified, vara
         'IsoValues', ~ismember('IsoValues', usingDefaults), ...
         'SurfaceAlpha', ~ismember('SurfaceAlpha', usingDefaults), ...
         'MaxRenderSize', ~ismember('MaxRenderSize', usingDefaults));
-    opts.MatFile = char(matFile);
-    if isempty(strtrim(opts.MatFile))
-        error('visualizeMatField:MatFileRequired', ...
-            'The first positional input matFile cannot be empty.');
+    if matFileSpecified
+        opts.MatFile = char(matFile);
+    else
+        opts.MatFile = '';
     end
     opts.Variable = char(string(variablePath));
     if variableSpecified && isempty(strtrim(opts.Variable))
@@ -199,6 +222,7 @@ function opts = parseViewerInputs(matFile, variablePath, variableSpecified, vara
             'The second positional input variablePath cannot be empty.');
     end
     opts.PlotType = normalizePlotType(opts.PlotType);
+    opts.RequestedPlotType = opts.PlotType;
     opts.Colormap = char(opts.Colormap);
     opts.IsoRange = double(opts.IsoRange(:).');
     opts.IsoValues = unique(double(opts.IsoValues(:).'));
@@ -246,14 +270,22 @@ end
 
 
 function resolvedFile = resolveMatFile(matFile)
-    if isempty(strtrim(char(matFile)))
+    candidate = strtrim(char(matFile));
+    if isempty(candidate)
         error('visualizeMatField:EmptyFile', 'MatFile cannot be empty.');
     end
-    if ~isfile(matFile)
+    fileObject = java.io.File(candidate);
+    if ~fileObject.isAbsolute()
+        % MATLAB file functions resolve relative paths against MATLAB's
+        % current folder, which can differ from the JVM working directory.
+        candidate = fullfile(pwd, candidate);
+        fileObject = java.io.File(candidate);
+    end
+    if ~isfile(candidate)
         error('visualizeMatField:FileNotFound', ...
             'MAT file was not found: %s', matFile);
     end
-    resolvedFile = char(java.io.File(matFile).getCanonicalPath());
+    resolvedFile = char(fileObject.getCanonicalPath());
 end
 
 
@@ -536,15 +568,58 @@ function fig = prepareViewerFigure(existingFig, figName, defaultPosition, visibl
 end
 
 
-function variableDropDown = addVariableSelector(mainGrid, opts, currentVariable)
-    selectorGrid = uigridlayout(mainGrid, [1, 3]);
+function height = sourceSelectorHeight(opts)
+    if opts.Specified.MatFile
+        height = 42;
+    else
+        height = 82;
+    end
+end
+
+
+function [filePathEdit, browseButton, variableDropDown] = ...
+        addSourceSelector(mainGrid, opts, currentVariable)
+    showFileControl = ~opts.Specified.MatFile;
+    rowCount = 1 + double(showFileControl);
+    selectorGrid = uigridlayout(mainGrid, [rowCount, 4]);
     selectorGrid.Layout.Row = 1;
-    selectorGrid.ColumnWidth = {82, 330, '1x'};
-    selectorGrid.Padding = [4, 2, 4, 2];
+    selectorGrid.ColumnWidth = {82, 410, 86, '1x'};
+    selectorGrid.RowHeight = repmat({32}, 1, rowCount);
+    selectorGrid.Padding = [4, 4, 4, 4];
     selectorGrid.ColumnSpacing = 8;
+    selectorGrid.RowSpacing = 4;
+
+    filePathEdit = gobjects(0);
+    browseButton = gobjects(0);
+    variableRow = 1;
+    if showFileControl
+        fileLabel = uilabel(selectorGrid, 'Text', 'MAT 文件', ...
+            'FontWeight', 'bold', 'HorizontalAlignment', 'right');
+        fileLabel.Layout.Row = 1;
+        fileLabel.Layout.Column = 1;
+
+        filePathEdit = uieditfield(selectorGrid, 'text', ...
+            'Value', opts.MatFile);
+        filePathEdit.Layout.Row = 1;
+        filePathEdit.Layout.Column = 2;
+        filePathEdit.Tooltip = ...
+            '输入绝对路径，或相对于当前 MATLAB 工作目录的 MAT 文件路径。';
+
+        browseButton = uibutton(selectorGrid, 'push', 'Text', '浏览…');
+        browseButton.Layout.Row = 1;
+        browseButton.Layout.Column = 3;
+
+        fileHint = uilabel(selectorGrid, ...
+            'Text', '支持绝对路径或相对当前 MATLAB 工作目录的路径。', ...
+            'FontColor', [0.35, 0.35, 0.38]);
+        fileHint.Layout.Row = 1;
+        fileHint.Layout.Column = 4;
+        variableRow = 2;
+    end
 
     selectorLabel = uilabel(selectorGrid, 'Text', '目标变量', ...
         'FontWeight', 'bold', 'HorizontalAlignment', 'right');
+    selectorLabel.Layout.Row = variableRow;
     selectorLabel.Layout.Column = 1;
 
     itemValues = opts.AvailableVariables;
@@ -556,18 +631,115 @@ function variableDropDown = addVariableSelector(mainGrid, opts, currentVariable)
             opts.AvailableVariableInfo, 'UniformOutput', false);
     end
     if isempty(currentVariable)
-        items = [{'请选择目标变量...'}, items];
+        if isempty(opts.MatFile)
+            placeholder = '请先指定 MAT 文件...';
+        elseif isempty(itemValues)
+            placeholder = '未发现可绘制变量';
+        else
+            placeholder = '请选择目标变量...';
+        end
+        items = [{placeholder}, items];
         itemValues = [{''}, itemValues];
     end
     variableDropDown = uidropdown(selectorGrid, ...
         'Items', items, 'ItemsData', itemValues, 'Value', currentVariable);
-    variableDropDown.Layout.Column = 2;
+    variableDropDown.Layout.Row = variableRow;
+    variableDropDown.Layout.Column = [2, 3];
     variableDropDown.Tooltip = opts.MatFile;
+    if isempty(opts.MatFile) || isempty(opts.AvailableVariables)
+        variableDropDown.Enable = 'off';
+    end
 
     selectorHint = uilabel(selectorGrid, ...
         'Text', '选择或更换变量后会立即更新图像、范围和相关控制项。', ...
         'FontColor', [0.35, 0.35, 0.38]);
-    selectorHint.Layout.Column = 3;
+    selectorHint.Layout.Row = variableRow;
+    selectorHint.Layout.Column = 4;
+end
+
+
+function browseForMatFile(fig, ~, ~)
+    if ~isvalid(fig)
+        return
+    end
+    state = fig.UserData;
+    initialFolder = pwd;
+    currentPath = state.FilePathEdit.Value;
+    if ~isempty(strtrim(currentPath))
+        candidate = currentPath;
+        if ~isfile(candidate)
+            candidate = fullfile(pwd, candidate);
+        end
+        candidateFolder = fileparts(candidate);
+        if isfolder(candidateFolder)
+            initialFolder = candidateFolder;
+        end
+    end
+
+    [fileName, folderName] = uigetfile( ...
+        {'*.mat', 'MAT 文件 (*.mat)'}, '选择 MAT 文件', ...
+        fullfile(initialFolder, '*.mat'), 'MultiSelect', 'off');
+    if isequal(fileName, 0)
+        return
+    end
+    state = fig.UserData;
+    state.FilePathEdit.Value = fullfile(folderName, fileName);
+    fig.UserData = state;
+    onMatFilePathChanged(fig, state.FilePathEdit, []);
+end
+
+
+function onMatFilePathChanged(fig, source, ~)
+    if ~isvalid(fig)
+        return
+    end
+    state = fig.UserData;
+    opts = state.Options;
+    enteredPath = strtrim(source.Value);
+    if isempty(enteredPath)
+        showViewerAlert(fig, '请输入 MAT 文件路径，或使用“浏览…”按钮选择文件。', ...
+            '尚未指定 MAT 文件');
+        return
+    end
+
+    source.Enable = 'off';
+    fig.Pointer = 'watch';
+    drawnow
+    try
+        resolvedFile = resolveMatFile(enteredPath);
+        opts.MatFile = resolvedFile;
+        opts.Variable = '';
+        opts.PlotType = opts.RequestedPlotType;
+        variableInfo = listSelectableVariables(resolvedFile, opts);
+        opts.AvailableVariables = {variableInfo.Path};
+        opts.AvailableVariableInfo = variableInfo;
+        createVariableSelectionFigure(opts, fig);
+        fig.Pointer = 'arrow';
+        drawnow
+        if isempty(variableInfo)
+            showViewerAlert(fig, ...
+                '该 MAT 文件中没有符合当前绘图参数的实数数值二维/三维数组。', ...
+                '未发现可绘制变量');
+        end
+    catch exception
+        if isvalid(fig)
+            fig.Pointer = 'arrow';
+        end
+        if isgraphics(source)
+            source.Enable = 'on';
+            if ~isempty(state.Options.MatFile)
+                source.Value = state.Options.MatFile;
+            end
+        end
+        showViewerAlert(fig, exception.message, '无法打开 MAT 文件');
+    end
+end
+
+
+function showViewerAlert(fig, message, titleText)
+    if isvalid(fig) && strcmp(fig.Visible, 'on')
+        uialert(fig, message, titleText);
+    end
 end
 
 
@@ -639,7 +811,10 @@ function onPlotModeChanged(fig, source, ~)
 end
 
 
-function fig = createVariableSelectionFigure(opts)
+function fig = createVariableSelectionFigure(opts, existingFig)
+    if nargin < 2
+        existingFig = [];
+    end
     switch opts.PlotType
         case 'slice'
             showMode = ~opts.Specified.PlotType;
@@ -665,12 +840,18 @@ function fig = createVariableSelectionFigure(opts)
             panelTitle = '三维等值面控制';
     end
 
-    fig = prepareViewerFigure([], figName, [120, 70, 1180, 830], opts.Visible);
+    if isempty(opts.MatFile)
+        figName = '请选择 MAT 文件';
+    end
+
+    fig = prepareViewerFigure(existingFig, figName, ...
+        [120, 70, 1180, 830], opts.Visible);
     mainGrid = uigridlayout(fig, [3, 1]);
-    mainGrid.RowHeight = {42, '1x', panelHeight};
+    mainGrid.RowHeight = {sourceSelectorHeight(opts), '1x', panelHeight};
     mainGrid.Padding = [18, 18, 18, 18];
     mainGrid.RowSpacing = 8;
-    variableDropDown = addVariableSelector(mainGrid, opts, '');
+    [filePathEdit, browseButton, variableDropDown] = ...
+        addSourceSelector(mainGrid, opts, '');
 
     ax = uiaxes(mainGrid);
     ax.Layout.Row = 2;
@@ -688,15 +869,24 @@ function fig = createVariableSelectionFigure(opts)
     end
 
     fig.UserData = struct( ...
+        'MatFile', opts.MatFile, ...
         'Variable', '', ...
         'PlotMode', opts.PlotType, ...
         'Options', opts, ...
         'Axes', ax, ...
+        'FilePathEdit', filePathEdit, ...
+        'BrowseButton', browseButton, ...
         'VariableDropDown', variableDropDown, ...
         'PlayButton', gobjects(0), ...
         'PlaybackTimer', []);
     variableDropDown.ValueChangedFcn = ...
         @(source, event) onVariableChanged(fig, source, event);
+    if ~isempty(filePathEdit) && isgraphics(filePathEdit)
+        filePathEdit.ValueChangedFcn = ...
+            @(source, event) onMatFilePathChanged(fig, source, event);
+        browseButton.ButtonPushedFcn = ...
+            @(source, event) browseForMatFile(fig, source, event);
+    end
 end
 
 
@@ -993,7 +1183,7 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
         dimension = [];
         index = [];
     end
-    showVariableControl = ~opts.Specified.Variable;
+    showSourceControl = ~opts.Specified.MatFile || ~opts.Specified.Variable;
     showModeControl = fieldDimension == 3 && ~opts.Specified.PlotType;
     showDimensionControl = fieldDimension == 3 && ~opts.Specified.Dimension;
     showIndexControl = fieldDimension == 3 && ~opts.Specified.Index;
@@ -1005,17 +1195,20 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
     fig = prepareViewerFigure(existingFig, figName, [120, 80, 1120, 800], opts.Visible);
     controlPanelHeight = 100 + 34 * double(showModeControl) + ...
         42 * double(showSliceControlRow) + 36 * double(showPlaybackControl);
-    if showVariableControl
+    if showSourceControl
         mainGrid = uigridlayout(fig, [3, 1]);
-        mainGrid.RowHeight = {42, '1x', controlPanelHeight};
+        mainGrid.RowHeight = {sourceSelectorHeight(opts), '1x', controlPanelHeight};
         plotRow = 2;
         controlRow = 3;
-        variableDropDown = addVariableSelector(mainGrid, opts, opts.Variable);
+        [filePathEdit, browseButton, variableDropDown] = ...
+            addSourceSelector(mainGrid, opts, opts.Variable);
     else
         mainGrid = uigridlayout(fig, [2, 1]);
         mainGrid.RowHeight = {'1x', controlPanelHeight};
         plotRow = 1;
         controlRow = 2;
+        filePathEdit = gobjects(0);
+        browseButton = gobjects(0);
         variableDropDown = gobjects(0);
     end
     mainGrid.Padding = [12, 12, 12, 12];
@@ -1180,6 +1373,8 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
         'Axes', ax, ...
         'Colorbar', cb, ...
         'Image', gobjects(0), ...
+        'FilePathEdit', filePathEdit, ...
+        'BrowseButton', browseButton, ...
         'VariableDropDown', variableDropDown, ...
         'ModeDropDown', modeDropDown, ...
         'DimensionDropDown', dimDropDown, ...
@@ -1199,6 +1394,12 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
     if ~isempty(variableDropDown) && isgraphics(variableDropDown)
         variableDropDown.ValueChangedFcn = ...
             @(source, event) onVariableChanged(fig, source, event);
+    end
+    if ~isempty(filePathEdit) && isgraphics(filePathEdit)
+        filePathEdit.ValueChangedFcn = ...
+            @(source, event) onMatFilePathChanged(fig, source, event);
+        browseButton.ButtonPushedFcn = ...
+            @(source, event) browseForMatFile(fig, source, event);
     end
     if ~isempty(dimDropDown) && isgraphics(dimDropDown)
         dimDropDown.ValueChangedFcn = @(source, event) onSliceDimensionChanged(fig, source, event);
@@ -1397,7 +1598,7 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
         error('visualizeMatField:VolumeRequires3D', ...
             'Volume mode requires a real numeric 3-D array.');
     end
-    showVariableControl = ~opts.Specified.Variable;
+    showSourceControl = ~opts.Specified.MatFile || ~opts.Specified.Variable;
     showModeControl = ~opts.Specified.PlotType;
     useExactIsoValues = opts.Specified.IsoValues;
     automaticModeSpecified = opts.Specified.NumIsosurfaces || opts.Specified.IsoRange;
@@ -1429,17 +1630,20 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
     fig = prepareViewerFigure(existingFig, figName, [120, 70, 1180, 830], opts.Visible);
     controlPanelHeight = baseControlPanelHeight + ...
         36 * double(showExactPlaybackInitially);
-    if showVariableControl
+    if showSourceControl
         mainGrid = uigridlayout(fig, [3, 1]);
-        mainGrid.RowHeight = {42, '1x', controlPanelHeight};
+        mainGrid.RowHeight = {sourceSelectorHeight(opts), '1x', controlPanelHeight};
         plotRow = 2;
         controlRow = 3;
-        variableDropDown = addVariableSelector(mainGrid, opts, opts.Variable);
+        [filePathEdit, browseButton, variableDropDown] = ...
+            addSourceSelector(mainGrid, opts, opts.Variable);
     else
         mainGrid = uigridlayout(fig, [2, 1]);
         mainGrid.RowHeight = {'1x', controlPanelHeight};
         plotRow = 1;
         controlRow = 2;
+        filePathEdit = gobjects(0);
+        browseButton = gobjects(0);
         variableDropDown = gobjects(0);
     end
     mainGrid.Padding = [18, 18, 18, 18];
@@ -1664,6 +1868,8 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
         'ToolbarButtons', gobjects(0), ...
         'Colorbar', cb, ...
         'SampleIndices', {sampleIndices}, ...
+        'FilePathEdit', filePathEdit, ...
+        'BrowseButton', browseButton, ...
         'VariableDropDown', variableDropDown, ...
         'ModeDropDown', modeDropDown, ...
         'IsoModeDropDown', isoModeDropDown, ...
@@ -1694,6 +1900,12 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
     if ~isempty(variableDropDown) && isgraphics(variableDropDown)
         variableDropDown.ValueChangedFcn = ...
             @(source, event) onVariableChanged(fig, source, event);
+    end
+    if ~isempty(filePathEdit) && isgraphics(filePathEdit)
+        filePathEdit.ValueChangedFcn = ...
+            @(source, event) onMatFilePathChanged(fig, source, event);
+        browseButton.ButtonPushedFcn = ...
+            @(source, event) browseForMatFile(fig, source, event);
     end
     if ~isempty(isoModeDropDown) && isgraphics(isoModeDropDown)
         isoModeDropDown.ValueChangedFcn = ...

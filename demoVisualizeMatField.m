@@ -1,13 +1,22 @@
 %% visualizeMatField usage examples
 % Run one section at a time (Ctrl+Enter in the MATLAB Editor).
 
+%% 0. Select both the MAT file and target variable inside the viewer
+% With no positional inputs, the image starts empty. Enter an absolute or
+% relative MAT-file path, or use the Browse button. The variable dropdown
+% becomes available only after the file has been validated.
+% visualizeMatField();
+%
+% Name-Value options may still be fixed before choosing the file:
+% visualizeMatField('PlotType', 'slice', 'Dimension', 2);
+
 %% 1. MAT file and variable specified, all other options use defaults
 % Volume mode. Use the in-window dropdown to switch modes.
 matFile = fullfile(fileparts(mfilename('fullpath')), ...
     'Data', 'data_uniGrid_zFlowDirct.mat');
 visualizeMatField(matFile, 'rho.rho_XYZ');
 
-%% 1a. Select the child variable inside the viewer
+%% 1a. Specify the MAT file, then select the variable inside the viewer
 % The image area starts empty and the other controls stay disabled until a
 % variable is selected from the dropdown above the image.
 % visualizeMatField(matFile);
