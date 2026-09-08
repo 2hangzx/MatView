@@ -1,7 +1,8 @@
-function fig = visualizeMatField(matFile, variablePath, varargin)
-%VISUALIZEMATFIELD Interactively inspect a nested 3-D variable in a MAT file.
+function fig = visualizeMatField(matFile, varargin)
+%VISUALIZEMATFIELD Interactively inspect a 2-D or 3-D numeric MAT variable.
 %
 % Basic usage
+%   visualizeMatField('Data/data_uniGrid_zFlowDirct.mat')
 %   visualizeMatField('Data/data_uniGrid_zFlowDirct.mat', 'rho.rho_XYZ')
 %   visualizeMatField('Data/data_uniGrid_zFlowDirct.mat', 'T.T_XYZ', ...
 %       'PlotType', 'slice', 'Dimension', 'Z', 'Index', 80)
@@ -13,12 +14,14 @@ function fig = visualizeMatField(matFile, variablePath, varargin)
 %            dimension, index and color scaling remain editable.
 %   volume - Multiple translucent isosurfaces (the 3-D counterpart of a
 %            contour plot). The number/range/opacity can be edited.
-%   The plot type can always be changed from inside the viewer.
+%   If PlotType is omitted, it can be changed from inside the viewer.
 %
-% Required input
+% Positional input
 %   matFile           First positional argument: MAT-file path.
-%   variablePath      Second positional argument: dot-separated path to a
-%                     real numeric 3-D child field.
+%   variablePath      Optional second positional argument: dot-separated
+%                     path to a real numeric 2-D/3-D array. Top-level and
+%                     arbitrarily nested scalar-struct fields are accepted.
+%                     If omitted, the figure first asks the user to select one.
 %
 % Defaults
 %   plot type         volume
@@ -54,39 +57,42 @@ function fig = visualizeMatField(matFile, variablePath, varargin)
         error('visualizeMatField:MatFileRequired', ...
             'The first positional input must be a MAT-file path.');
     end
-    if nargin < 2
-        error('visualizeMatField:VariableRequired', ...
-            ['The second positional input must be a child-variable path, ', ...
-             'for example "rho.rho_XYZ".']);
+    [variablePath, variableSpecified, optionalInputs] = ...
+        splitVariableInput(varargin);
+    opts = parseViewerInputs(matFile, variablePath, variableSpecified, ...
+        optionalInputs{:});
+    opts.MatFile = resolveMatFile(opts.MatFile);
+
+    if ~variableSpecified
+        variableInfo = listSelectableVariables(opts.MatFile, opts);
+        opts.AvailableVariables = {variableInfo.Path};
+        opts.AvailableVariableInfo = variableInfo;
+        if isempty(opts.AvailableVariables)
+            error('visualizeMatField:NoSelectableVariables', ...
+                ['The MAT file contains no compatible real numeric 2-D/3-D ', ...
+                 'arrays for the requested plotting options.']);
+        end
+        fig = createVariableSelectionFigure(opts);
+        return
     end
 
-    opts = parseViewerInputs(matFile, variablePath, varargin{:});
-    [volumeData, resolvedFile] = loadNestedVolume(opts.MatFile, opts.Variable);
-
-    finiteMask = isfinite(volumeData);
-    if ~any(finiteMask, 'all')
-        error('visualizeMatField:NoFiniteData', ...
-            'Variable "%s" does not contain any finite values.', opts.Variable);
-    end
-    globalRange = [min(volumeData(finiteMask)), max(volumeData(finiteMask))];
-    clear finiteMask
-
-    if opts.Specified.IsoValues && ...
-            (any(opts.IsoValues < globalRange(1)) || any(opts.IsoValues > globalRange(2)))
-        error('visualizeMatField:IsoValuesOutOfRange', ...
-            'Every IsoValues entry must be inside the global data range [%g, %g].', ...
-            globalRange(1), globalRange(2));
-    end
+    [fieldData, resolvedFile, fieldDimension] = ...
+        loadTargetArray(opts.MatFile, opts.Variable);
+    opts.FieldDimension = fieldDimension;
+    opts.PlotType = resolvePlotTypeForField(opts, fieldDimension);
+    globalRange = validateLoadedArray(fieldData, opts);
 
     opts.MatFile = resolvedFile;
-    opts.Dimension = normalizeDimension(opts.Dimension);
-    validateInitialIndex(opts.Index, opts.Dimension, size(volumeData));
+    if fieldDimension == 3
+        opts.Dimension = normalizeDimension(opts.Dimension);
+        validateInitialIndex(opts.Index, opts.Dimension, size(fieldData));
+    end
 
     switch opts.PlotType
         case 'slice'
-            fig = createSliceFigure(volumeData, opts, globalRange);
+            fig = createSliceFigure(fieldData, opts, globalRange);
         case 'volume'
-            fig = createVolumeFigure(volumeData, opts, globalRange);
+            fig = createVolumeFigure(fieldData, opts, globalRange);
         otherwise
             error('visualizeMatField:InternalPlotType', ...
                 'Unsupported normalized plot type "%s".', opts.PlotType);
@@ -94,21 +100,47 @@ function fig = visualizeMatField(matFile, variablePath, varargin)
 end
 
 
-function opts = parseViewerInputs(matFile, variablePath, varargin)
+function [variablePath, variableSpecified, optionalInputs] = splitVariableInput(inputs)
+    optionNames = ["PlotType", "Dimension", "Index", "Colormap", ...
+        "ColorLimits", "NumIsosurfaces", "IsoRange", "IsoValues", ...
+        "SurfaceAlpha", "MaxRenderSize", "Visible"];
+    variablePath = '';
+    variableSpecified = false;
+    optionalInputs = inputs;
+    if isempty(inputs)
+        return
+    end
+
+    firstInput = inputs{1};
+    if isempty(firstInput)
+        optionalInputs = inputs(2:end);
+    elseif isTextScalar(firstInput) && ...
+            any(strcmpi(string(firstInput), optionNames))
+        % The optional Name-Value list starts immediately after matFile.
+    else
+        variablePath = firstInput;
+        variableSpecified = true;
+        optionalInputs = inputs(2:end);
+    end
+end
+
+
+function opts = parseViewerInputs(matFile, variablePath, variableSpecified, varargin)
     plotTypeNames = ["slice", "figure", "volume", "3d", "isosurface"];
 
     if ~isTextScalar(matFile)
         error('visualizeMatField:InvalidMatFile', ...
             'The first positional input matFile must be a character vector or string scalar.');
     end
-    if ~isTextScalar(variablePath)
+    if variableSpecified && ~isTextScalar(variablePath)
         error('visualizeMatField:InvalidVariable', ...
             'The second positional input variablePath must be a character vector or string scalar.');
     end
     if strcmpi(strtrim(char(matFile)), 'MatFile')
         error('visualizeMatField:RequiredInputsMustBePositional', ...
-            ['matFile and variablePath are positional inputs, not Name-Value parameters. ', ...
-             'Use visualizeMatField(matFile, variablePath, Name, Value, ...).']);
+            ['matFile is a required positional input; variablePath is an optional ', ...
+             'second positional input. Use visualizeMatField(matFile, ', ...
+             '[variablePath], Name, Value, ...).']);
     end
     if ~isempty(varargin) && isTextScalar(varargin{1}) && ...
             any(lower(string(varargin{1})) == plotTypeNames)
@@ -147,6 +179,7 @@ function opts = parseViewerInputs(matFile, variablePath, varargin)
     usingDefaults = parser.UsingDefaults;
     opts = parser.Results;
     opts.Specified = struct( ...
+        'Variable', variableSpecified, ...
         'PlotType', ~ismember('PlotType', usingDefaults), ...
         'Dimension', ~ismember('Dimension', usingDefaults), ...
         'Index', ~ismember('Index', usingDefaults), ...
@@ -161,8 +194,8 @@ function opts = parseViewerInputs(matFile, variablePath, varargin)
         error('visualizeMatField:MatFileRequired', ...
             'The first positional input matFile cannot be empty.');
     end
-    opts.Variable = char(variablePath);
-    if isempty(strtrim(opts.Variable))
+    opts.Variable = char(string(variablePath));
+    if variableSpecified && isempty(strtrim(opts.Variable))
         error('visualizeMatField:VariableRequired', ...
             'The second positional input variablePath cannot be empty.');
     end
@@ -213,8 +246,8 @@ function opts = parseViewerInputs(matFile, variablePath, varargin)
 end
 
 
-function [value, resolvedFile] = loadNestedVolume(matFile, variablePath)
-    if isempty(strtrim(matFile))
+function resolvedFile = resolveMatFile(matFile)
+    if isempty(strtrim(char(matFile)))
         error('visualizeMatField:EmptyFile', 'MatFile cannot be empty.');
     end
     if ~isfile(matFile)
@@ -222,12 +255,224 @@ function [value, resolvedFile] = loadNestedVolume(matFile, variablePath)
             'MAT file was not found: %s', matFile);
     end
     resolvedFile = char(java.io.File(matFile).getCanonicalPath());
+end
+
+
+function variableInfo = listSelectableVariables(matFile, opts)
+    variableInfo = emptyVariableInfo();
+
+    % Version 7.3 MAT files are HDF5 containers. Walk group/dataset
+    % metadata recursively so large arrays are not loaded just to build the
+    % selector. MATLAB's internal #refs# storage is deliberately skipped.
+    try
+        fileInfo = h5info(matFile);
+        variableInfo = collectHdf5Variables(fileInfo, variableInfo);
+    catch
+        % Earlier MAT formats are not HDF5. Top-level numeric arrays can be
+        % classified from WHOS metadata; scalar structs are then loaded one
+        % at a time and recursively inspected.
+        topInfo = whos('-file', matFile);
+        for rootIndex = 1:numel(topInfo)
+            item = topInfo(rootIndex);
+            if isNumericClassName(item.class)
+                isComplex = isfield(item, 'complex') && item.complex;
+                dimension = classifyTargetShape(item.size);
+                if ~isComplex && dimension > 0
+                    variableInfo(end + 1) = makeVariableInfo( ...
+                        item.name, item.size, dimension); %#ok<AGROW>
+                end
+            elseif strcmp(item.class, 'struct') && isequal(item.size, [1, 1])
+                loaded = load(matFile, item.name);
+                variableInfo = collectClassicVariables(loaded.(item.name), ...
+                    item.name, variableInfo);
+                clear loaded
+            end
+        end
+    end
+
+    if requiresThreeDimensions(opts)
+        variableInfo = variableInfo([variableInfo.Dimension] == 3);
+    end
+    if ~isempty(variableInfo)
+        [~, order] = sort({variableInfo.Path});
+        variableInfo = variableInfo(order);
+    end
+end
+
+
+function info = collectHdf5Variables(group, info)
+    if startsWith(group.Name, '/#refs#')
+        return
+    end
+    if ~strcmp(group.Name, '/') && ...
+            ~strcmp(hdf5AttributeText(group.Attributes, 'MATLAB_class'), 'struct')
+        % Only scalar-struct groups form valid dot-separated MATLAB paths.
+        % This prevents datasets internal to objects/tables from appearing
+        % as selectable arrays merely because their HDF5 storage is numeric.
+        return
+    end
+
+    groupPath = regexprep(group.Name, '^/', '');
+    groupPath = strrep(groupPath, '/', '.');
+    for datasetIndex = 1:numel(group.Datasets)
+        dataset = group.Datasets(datasetIndex);
+        matlabClass = hdf5AttributeText(dataset.Attributes, 'MATLAB_class');
+        if ~isNumericClassName(matlabClass) || ...
+                ~any(strcmp(dataset.Datatype.Class, {'H5T_FLOAT', 'H5T_INTEGER'}))
+            continue
+        end
+        dimension = classifyTargetShape(dataset.Dataspace.Size);
+        if dimension == 0
+            continue
+        end
+        if isempty(groupPath)
+            path = dataset.Name;
+        else
+            path = [groupPath, '.', dataset.Name];
+        end
+        info(end + 1) = makeVariableInfo( ...
+            path, dataset.Dataspace.Size, dimension); %#ok<AGROW>
+    end
+
+    for groupIndex = 1:numel(group.Groups)
+        info = collectHdf5Variables(group.Groups(groupIndex), info);
+    end
+end
+
+
+function info = collectClassicVariables(value, path, info)
+    if isnumeric(value)
+        dimension = classifyTargetArray(value);
+        if dimension > 0
+            info(end + 1) = makeVariableInfo(path, size(value), dimension);
+        end
+        return
+    end
+    if ~isstruct(value) || ~isscalar(value)
+        return
+    end
+
+    fields = fieldnames(value);
+    for fieldIndex = 1:numel(fields)
+        field = fields{fieldIndex};
+        info = collectClassicVariables(value.(field), ...
+            [path, '.', field], info);
+    end
+end
+
+
+function text = hdf5AttributeText(attributes, attributeName)
+    text = '';
+    for attributeIndex = 1:numel(attributes)
+        if strcmp(attributes(attributeIndex).Name, attributeName)
+            value = attributes(attributeIndex).Value;
+            if isnumeric(value)
+                text = char(value(:).');
+            else
+                text = char(string(value));
+            end
+            return
+        end
+    end
+end
+
+
+function info = emptyVariableInfo()
+    info = struct('Path', {}, 'Size', {}, 'Dimension', {});
+end
+
+
+function info = makeVariableInfo(path, dataSize, dimension)
+    info = struct('Path', char(path), ...
+        'Size', double(dataSize(:).'), 'Dimension', dimension);
+end
+
+
+function tf = requiresThreeDimensions(opts)
+    volumeOptionsSpecified = opts.Specified.NumIsosurfaces || ...
+        opts.Specified.IsoRange || opts.Specified.IsoValues || ...
+        opts.Specified.SurfaceAlpha || opts.Specified.MaxRenderSize;
+    tf = (opts.Specified.PlotType && strcmp(opts.PlotType, 'volume')) || ...
+        opts.Specified.Dimension || opts.Specified.Index || volumeOptionsSpecified;
+end
+
+
+function dimension = classifyTargetArray(value)
+    dimension = 0;
+    if isnumeric(value) && isreal(value)
+        dimension = classifyTargetShape(size(value));
+    end
+end
+
+
+function dimension = classifyTargetShape(dataSize)
+    dataSize = double(dataSize(:).');
+    while numel(dataSize) > 2 && dataSize(end) == 1
+        dataSize(end) = [];
+    end
+    if numel(dataSize) == 2 && all(dataSize > 1)
+        dimension = 2;
+    elseif numel(dataSize) == 3 && all(dataSize > 1)
+        dimension = 3;
+    else
+        dimension = 0;
+    end
+end
+
+
+function tf = isNumericClassName(className)
+    numericClasses = {'double', 'single', 'int8', 'uint8', 'int16', ...
+        'uint16', 'int32', 'uint32', 'int64', 'uint64'};
+    tf = any(strcmp(char(className), numericClasses));
+end
+
+
+function plotType = resolvePlotTypeForField(opts, fieldDimension)
+    if fieldDimension == 3
+        plotType = opts.PlotType;
+        return
+    end
+    if opts.Specified.PlotType && strcmp(opts.PlotType, 'volume')
+        error('visualizeMatField:VolumeRequires3D', ...
+            'PlotType ''volume'' requires a real numeric 3-D array.');
+    end
+    if opts.Specified.Dimension || opts.Specified.Index
+        error('visualizeMatField:SlicePlaneRequires3D', ...
+            ['Dimension and Index select a plane from a 3-D array and ', ...
+             'cannot be used with a 2-D array.']);
+    end
+    plotType = 'slice';
+end
+
+
+function globalRange = validateLoadedArray(fieldData, opts)
+    finiteMask = isfinite(fieldData);
+    if ~any(finiteMask, 'all')
+        error('visualizeMatField:NoFiniteData', ...
+            'Variable "%s" does not contain any finite values.', opts.Variable);
+    end
+    % UI numeric properties require double values. Convert only these two
+    % statistics; keep the potentially very large field in its source type.
+    globalRange = double([min(fieldData(finiteMask)), max(fieldData(finiteMask))]);
+
+    if opts.Specified.IsoValues && ...
+            (any(opts.IsoValues < globalRange(1)) || ...
+             any(opts.IsoValues > globalRange(2)))
+        error('visualizeMatField:IsoValuesOutOfRange', ...
+            'Every IsoValues entry must be inside the global data range [%g, %g].', ...
+            globalRange(1), globalRange(2));
+    end
+end
+
+
+function [value, resolvedFile, fieldDimension] = loadTargetArray(matFile, variablePath)
+    resolvedFile = resolveMatFile(matFile);
 
     parts = strsplit(strtrim(variablePath), '.');
-    if numel(parts) < 2 || any(cellfun(@isempty, parts))
+    if any(cellfun(@isempty, parts))
         error('visualizeMatField:VariablePath', ...
-            ['Variable must identify a child field with a dot-separated ', ...
-             'path such as "rho.rho_XYZ".']);
+            ['Variable must identify a top-level array or a dot-separated ', ...
+             'scalar-struct field such as "rho.rho_XYZ".']);
     end
 
     rootName = parts{1};
@@ -261,9 +506,11 @@ function [value, resolvedFile] = loadNestedVolume(matFile, variablePath)
         traversed = [traversed, '.', fieldName]; %#ok<AGROW>
     end
 
-    if ~isnumeric(value) || ~isreal(value) || ndims(value) ~= 3
-        error('visualizeMatField:NotRealNumeric3D', ...
-            'Variable "%s" must be a real numeric 3-D array; got %s %s.', ...
+    fieldDimension = classifyTargetArray(value);
+    if fieldDimension == 0
+        error('visualizeMatField:NotTargetArray', ...
+            ['Variable "%s" must be a real numeric 2-D matrix or a real ', ...
+             'numeric 3-D array; got %s %s.'], ...
             variablePath, class(value), mat2str(size(value)));
     end
 end
@@ -287,6 +534,41 @@ function fig = prepareViewerFigure(existingFig, figName, defaultPosition, visibl
         fig.Color = [0.97, 0.97, 0.98];
         fig.ToolBar = 'figure';
     end
+end
+
+
+function variableDropDown = addVariableSelector(mainGrid, opts, currentVariable)
+    selectorGrid = uigridlayout(mainGrid, [1, 3]);
+    selectorGrid.Layout.Row = 1;
+    selectorGrid.ColumnWidth = {82, 330, '1x'};
+    selectorGrid.Padding = [4, 2, 4, 2];
+    selectorGrid.ColumnSpacing = 8;
+
+    selectorLabel = uilabel(selectorGrid, 'Text', '目标变量', ...
+        'FontWeight', 'bold', 'HorizontalAlignment', 'right');
+    selectorLabel.Layout.Column = 1;
+
+    itemValues = opts.AvailableVariables;
+    items = itemValues;
+    if isfield(opts, 'AvailableVariableInfo') && ...
+            numel(opts.AvailableVariableInfo) == numel(itemValues)
+        items = arrayfun(@(item) sprintf('%s  [%s, %d-D]', ...
+            item.Path, strjoin(string(item.Size), 'x'), item.Dimension), ...
+            opts.AvailableVariableInfo, 'UniformOutput', false);
+    end
+    if isempty(currentVariable)
+        items = [{'请选择目标变量...'}, items];
+        itemValues = [{''}, itemValues];
+    end
+    variableDropDown = uidropdown(selectorGrid, ...
+        'Items', items, 'ItemsData', itemValues, 'Value', currentVariable);
+    variableDropDown.Layout.Column = 2;
+    variableDropDown.Tooltip = opts.MatFile;
+
+    selectorHint = uilabel(selectorGrid, ...
+        'Text', '选择或更换变量后会立即更新图像、范围和相关控制项。', ...
+        'FontColor', [0.35, 0.35, 0.38]);
+    selectorHint.Layout.Column = 3;
 end
 
 
@@ -358,34 +640,394 @@ function onPlotModeChanged(fig, source, ~)
 end
 
 
+function fig = createVariableSelectionFigure(opts)
+    switch opts.PlotType
+        case 'slice'
+            showMode = ~opts.Specified.PlotType;
+            showDimension = ~opts.Specified.Dimension;
+            showIndex = ~opts.Specified.Index;
+            showColor = ~opts.Specified.ColorLimits;
+            showControlRow = showDimension || showIndex || showColor;
+            panelHeight = 100 + 34 * double(showMode) + ...
+                42 * double(showControlRow) + 36 * double(showIndex);
+            figName = '请选择目标变量 | slice';
+            panelTitle = '切片控制';
+        case 'volume'
+            showMode = ~opts.Specified.PlotType;
+            useExactValues = opts.Specified.IsoValues;
+            automaticSpecified = opts.Specified.NumIsosurfaces || opts.Specified.IsoRange;
+            showIsoMode = ~useExactValues && ~automaticSpecified;
+            showVolumeRow = (~useExactValues && ~opts.Specified.NumIsosurfaces) || ...
+                (~useExactValues && ~opts.Specified.IsoRange) || ...
+                ~opts.Specified.SurfaceAlpha;
+            panelHeight = 100 + 34 * double(showMode) + ...
+                36 * double(showIsoMode) + 46 * double(showVolumeRow);
+            figName = '请选择目标变量 | 3-D isosurfaces';
+            panelTitle = '三维等值面控制';
+    end
+
+    fig = prepareViewerFigure([], figName, [120, 70, 1180, 830], opts.Visible);
+    mainGrid = uigridlayout(fig, [3, 1]);
+    mainGrid.RowHeight = {42, '1x', panelHeight};
+    mainGrid.Padding = [18, 18, 18, 18];
+    mainGrid.RowSpacing = 8;
+    variableDropDown = addVariableSelector(mainGrid, opts, '');
+
+    ax = uiaxes(mainGrid);
+    ax.Layout.Row = 2;
+    ax.Visible = 'off';
+    ax.Toolbar.Visible = 'off';
+
+    controlPanel = uipanel(mainGrid, 'Title', panelTitle, ...
+        'FontWeight', 'bold', 'BackgroundColor', [0.98, 0.98, 0.99]);
+    controlPanel.Layout.Row = 3;
+    switch opts.PlotType
+        case 'slice'
+            createDisabledSliceControls(controlPanel, opts);
+        case 'volume'
+            createDisabledVolumeControls(controlPanel, opts);
+    end
+
+    fig.UserData = struct( ...
+        'Variable', '', ...
+        'PlotMode', opts.PlotType, ...
+        'Options', opts, ...
+        'Axes', ax, ...
+        'VariableDropDown', variableDropDown, ...
+        'PlayButton', gobjects(0), ...
+        'PlaybackTimer', []);
+    variableDropDown.ValueChangedFcn = ...
+        @(source, event) onVariableChanged(fig, source, event);
+end
+
+
+function createDisabledSliceControls(controlPanel, opts)
+    showMode = ~opts.Specified.PlotType;
+    showDimension = ~opts.Specified.Dimension;
+    showIndex = ~opts.Specified.Index;
+    showColor = ~opts.Specified.ColorLimits;
+    showControlRow = showDimension || showIndex || showColor;
+
+    controls = uigridlayout(controlPanel, [4, 10]);
+    controls.RowHeight = {28, 34 * double(showMode), ...
+        42 * double(showControlRow), 36 * double(showIndex)};
+    controls.ColumnWidth = {62, 130, 42, '1x', '1x', '1x', 72, 24, 60, 145};
+    controls.Padding = [10, 14, 10, 8];
+    controls.ColumnSpacing = 7;
+    controls.RowSpacing = 6;
+
+    pending = uilabel(controls, 'Text', '变量：尚未选择', 'FontWeight', 'bold');
+    pending.Layout.Row = 1;
+    pending.Layout.Column = [1, 3];
+    globalLabel = uilabel(controls, 'Text', '全局 [min, max]：-- / --');
+    globalLabel.Layout.Row = 1;
+    globalLabel.Layout.Column = [4, 5];
+    sliceLabel = uilabel(controls, 'Text', '切片 [min, max]：-- / --');
+    sliceLabel.Layout.Row = 1;
+    sliceLabel.Layout.Column = [6, 10];
+
+    if showMode
+        label = uilabel(controls, 'Text', '绘图模式');
+        label.Layout.Row = 2;
+        label.Layout.Column = 1;
+        control = uidropdown(controls, 'Items', {'Slice（二维切片）'}, ...
+            'Value', 'Slice（二维切片）', 'Enable', 'off');
+        control.Layout.Row = 2;
+        control.Layout.Column = [2, 4];
+    end
+    if showDimension
+        label = uilabel(controls, 'Text', '切片维度');
+        label.Layout.Row = 3;
+        label.Layout.Column = 1;
+        control = uidropdown(controls, ...
+            'Items', {'Dim 1 (I/X)', 'Dim 2 (J/Y)', 'Dim 3 (K/Z)'}, ...
+            'Value', 'Dim 3 (K/Z)', 'Enable', 'off');
+        control.Layout.Row = 3;
+        control.Layout.Column = 2;
+    end
+    if showIndex
+        label = uilabel(controls, 'Text', '索引');
+        label.Layout.Row = 3;
+        label.Layout.Column = 3;
+        slider = uislider(controls, 'Limits', [1, 2], 'Value', 1, ...
+            'MajorTicks', [1, 2], 'Enable', 'off');
+        slider.Layout.Row = 3;
+        slider.Layout.Column = [4, 6];
+        edit = uieditfield(controls, 'numeric', 'Value', 1, 'Enable', 'off');
+        edit.Layout.Row = 3;
+        edit.Layout.Column = 7;
+        play = uibutton(controls, 'Text', '播放', 'Enable', 'off');
+        play.Layout.Row = 4;
+        play.Layout.Column = 2;
+        interval = uieditfield(controls, 'numeric', 'Value', 0.12, 'Enable', 'off');
+        interval.Layout.Row = 4;
+        interval.Layout.Column = 4;
+    end
+    if showColor
+        label = uilabel(controls, 'Text', '颜色栏');
+        label.Layout.Row = 3;
+        label.Layout.Column = 9;
+        control = uidropdown(controls, 'Items', {'全局范围'}, ...
+            'Value', '全局范围', 'Enable', 'off');
+        control.Layout.Row = 3;
+        control.Layout.Column = 10;
+    end
+end
+
+
+function createDisabledVolumeControls(controlPanel, opts)
+    showMode = ~opts.Specified.PlotType;
+    useExactValues = opts.Specified.IsoValues;
+    automaticSpecified = opts.Specified.NumIsosurfaces || opts.Specified.IsoRange;
+    showIsoMode = ~useExactValues && ~automaticSpecified;
+    showCount = ~useExactValues && ~opts.Specified.NumIsosurfaces;
+    showRange = ~useExactValues && ~opts.Specified.IsoRange;
+    showAlpha = ~opts.Specified.SurfaceAlpha;
+    showVolumeRow = showCount || showRange || showAlpha;
+
+    controls = uigridlayout(controlPanel, [4, 14]);
+    controls.RowHeight = {28, 34 * double(showMode), ...
+        36 * double(showIsoMode), 46 * double(showVolumeRow)};
+    controls.ColumnWidth = {82, 62, 76, 62, 76, 62, 55, ...
+        '1x', '1x', '1x', 55, 62, 62, 72};
+    controls.Padding = [10, 14, 10, 8];
+    controls.ColumnSpacing = 7;
+    controls.RowSpacing = 6;
+
+    pending = uilabel(controls, 'Text', '变量：尚未选择', 'FontWeight', 'bold');
+    pending.Layout.Row = 1;
+    pending.Layout.Column = [1, 5];
+    globalLabel = uilabel(controls, 'Text', '全局 [min, max]：-- / --');
+    globalLabel.Layout.Row = 1;
+    globalLabel.Layout.Column = [6, 9];
+    sampleLabel = uilabel(controls, 'Text', '绘制采样：--');
+    sampleLabel.Layout.Row = 1;
+    sampleLabel.Layout.Column = [10, 14];
+
+    if showMode
+        label = uilabel(controls, 'Text', '绘图模式');
+        label.Layout.Row = 2;
+        label.Layout.Column = 1;
+        control = uidropdown(controls, 'Items', {'Volume（三维等值面）'}, ...
+            'Value', 'Volume（三维等值面）', 'Enable', 'off');
+        control.Layout.Row = 2;
+        control.Layout.Column = [2, 4];
+    end
+    if showIsoMode
+        label = uilabel(controls, 'Text', '等值面方式');
+        label.Layout.Row = 3;
+        label.Layout.Column = 1;
+        control = uidropdown(controls, 'Items', {'自动多层'}, ...
+            'Value', '自动多层', 'Enable', 'off');
+        control.Layout.Row = 3;
+        control.Layout.Column = [2, 4];
+    end
+    if showCount
+        label = uilabel(controls, 'Text', '等值面数');
+        label.Layout.Row = 4;
+        label.Layout.Column = 1;
+        control = uispinner(controls, 'Value', opts.NumIsosurfaces, 'Enable', 'off');
+        control.Layout.Row = 4;
+        control.Layout.Column = 2;
+    end
+    if showRange
+        label = uilabel(controls, 'Text', '范围下限%');
+        label.Layout.Row = 4;
+        label.Layout.Column = 3;
+        lower = uieditfield(controls, 'numeric', ...
+            'Value', 100 * opts.IsoRange(1), 'Enable', 'off');
+        lower.Layout.Row = 4;
+        lower.Layout.Column = 4;
+        label = uilabel(controls, 'Text', '范围上限%');
+        label.Layout.Row = 4;
+        label.Layout.Column = 5;
+        upper = uieditfield(controls, 'numeric', ...
+            'Value', 100 * opts.IsoRange(2), 'Enable', 'off');
+        upper.Layout.Row = 4;
+        upper.Layout.Column = 6;
+    end
+    if showAlpha
+        label = uilabel(controls, 'Text', '透明度');
+        label.Layout.Row = 4;
+        label.Layout.Column = 7;
+        slider = uislider(controls, 'Limits', [0.03, 1], ...
+            'Value', opts.SurfaceAlpha, 'Enable', 'off');
+        slider.Layout.Row = 4;
+        slider.Layout.Column = [8, 14];
+    end
+end
+
+
+function onVariableChanged(fig, source, ~)
+    if ~isvalid(fig)
+        return
+    end
+    state = fig.UserData;
+    previousVariable = state.Variable;
+    selectedVariable = char(source.Value);
+    if isempty(selectedVariable) || strcmp(selectedVariable, previousVariable)
+        return
+    end
+
+    opts = state.Options;
+    opts.PlotType = state.PlotMode;
+    oldGlobalRange = [];
+    oldDataSize = [];
+    oldFieldDimension = 0;
+    oldDimension = [];
+    oldIndex = [];
+    if ~isempty(previousVariable)
+        oldGlobalRange = state.GlobalRange;
+        oldFieldDimension = state.FieldDimension;
+        switch state.PlotMode
+            case 'slice'
+                opts.Dimension = state.Dimension;
+                opts.Index = state.Index;
+                oldDataSize = state.DataSize;
+                oldDimension = state.Dimension;
+                oldIndex = state.Index;
+                if strcmp(state.ColorMode, 'custom')
+                    opts.ColorLimits = state.CustomClim;
+                else
+                    opts.ColorLimits = state.ColorMode;
+                end
+            case 'volume'
+                opts.NumIsosurfaces = state.NumIsosurfaces;
+                if ~isempty(state.CountSpinner) && isgraphics(state.CountSpinner)
+                    opts.NumIsosurfaces = round(state.CountSpinner.Value);
+                end
+                opts.IsoRange = state.IsoRange;
+                if ~isempty(state.LowerEdit) && isgraphics(state.LowerEdit) && ...
+                        state.LowerEdit.Value < state.UpperEdit.Value
+                    opts.IsoRange = [state.LowerEdit.Value, state.UpperEdit.Value] / 100;
+                end
+                opts.IsoValues = state.IsoValues;
+                opts.RuntimeIsoSelectionMode = state.IsoSelectionMode;
+                opts.RuntimeExactIsoValue = state.ExactIsoValue;
+                opts.SurfaceAlpha = state.SurfaceAlpha;
+                if ~isempty(state.AlphaSlider) && isgraphics(state.AlphaSlider)
+                    opts.SurfaceAlpha = state.AlphaSlider.Value;
+                end
+        end
+    end
+
+    opts.Variable = selectedVariable;
+    source.Enable = 'off';
+    fig.Pointer = 'watch';
+    drawnow
+    try
+        [fieldData, resolvedFile, fieldDimension] = ...
+            loadTargetArray(opts.MatFile, selectedVariable);
+        opts.MatFile = resolvedFile;
+        opts.FieldDimension = fieldDimension;
+        opts.PlotType = resolvePlotTypeForField(opts, fieldDimension);
+        if fieldDimension == 3
+            opts.Dimension = normalizeDimension(opts.Dimension);
+        end
+        globalRange = validateLoadedArray(fieldData, opts);
+
+        if strcmp(opts.PlotType, 'slice') && fieldDimension == 3
+            if opts.Specified.Index
+                validateInitialIndex(opts.Index, opts.Dimension, size(fieldData));
+            elseif oldFieldDimension == 3 && ~isempty(oldDataSize)
+                oldLength = oldDataSize(oldDimension);
+                newLength = size(fieldData, opts.Dimension);
+                if oldLength <= 1
+                    relativePosition = 0;
+                else
+                    relativePosition = (oldIndex - 1) / (oldLength - 1);
+                end
+                opts.Index = round(1 + relativePosition * (newLength - 1));
+            else
+                opts.Index = [];
+            end
+        elseif strcmp(opts.PlotType, 'volume') && ...
+                isfield(opts, 'RuntimeIsoSelectionMode') && ...
+                strcmp(opts.RuntimeIsoSelectionMode, 'single') && ...
+                ~isempty(oldGlobalRange)
+            oldSpan = diff(oldGlobalRange);
+            if oldSpan > 0
+                relativeValue = (opts.RuntimeExactIsoValue - oldGlobalRange(1)) / oldSpan;
+                relativeValue = max(0, min(1, relativeValue));
+                opts.RuntimeExactIsoValue = globalRange(1) + ...
+                    relativeValue * diff(globalRange);
+            else
+                opts.RuntimeExactIsoValue = mean(globalRange);
+            end
+        end
+
+        switch opts.PlotType
+            case 'slice'
+                createSliceFigure(fieldData, opts, globalRange, fig);
+            case 'volume'
+                createVolumeFigure(fieldData, opts, globalRange, fig);
+        end
+        fig.Pointer = 'arrow';
+        drawnow
+    catch exception
+        if isvalid(fig)
+            fig.Pointer = 'arrow';
+        end
+        if isgraphics(source)
+            source.Enable = 'on';
+            source.Value = previousVariable;
+        end
+        uialert(fig, exception.message, '无法加载目标变量');
+    end
+end
+
+
 function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
     if nargin < 4
         existingFig = [];
     end
     dataSize = size(volumeData);
-    dimension = opts.Dimension;
-    if isempty(opts.Index)
-        index = round((dataSize(dimension) + 1) / 2);
+    fieldDimension = opts.FieldDimension;
+    if fieldDimension == 3
+        dimension = opts.Dimension;
+        if isempty(opts.Index)
+            index = round((dataSize(dimension) + 1) / 2);
+        else
+            index = double(opts.Index);
+        end
     else
-        index = double(opts.Index);
+        dimension = [];
+        index = [];
     end
-    showModeControl = ~opts.Specified.PlotType;
-    showDimensionControl = ~opts.Specified.Dimension;
-    showIndexControl = ~opts.Specified.Index;
+    showVariableControl = ~opts.Specified.Variable;
+    showModeControl = fieldDimension == 3 && ~opts.Specified.PlotType;
+    showDimensionControl = fieldDimension == 3 && ~opts.Specified.Dimension;
+    showIndexControl = fieldDimension == 3 && ~opts.Specified.Index;
     showColorControl = ~opts.Specified.ColorLimits;
     showSliceControlRow = showDimensionControl || showIndexControl || showColorControl;
     showPlaybackControl = showIndexControl;
 
     figName = sprintf('%s | slice', opts.Variable);
     fig = prepareViewerFigure(existingFig, figName, [120, 80, 1120, 800], opts.Visible);
-    mainGrid = uigridlayout(fig, [2, 1]);
-    mainGrid.RowHeight = {'1x', 100 + 34 * double(showModeControl) + ...
-        42 * double(showSliceControlRow) + 36 * double(showPlaybackControl)};
+    controlPanelHeight = 100 + 34 * double(showModeControl) + ...
+        42 * double(showSliceControlRow) + 36 * double(showPlaybackControl);
+    if showVariableControl
+        mainGrid = uigridlayout(fig, [3, 1]);
+        mainGrid.RowHeight = {42, '1x', controlPanelHeight};
+        plotRow = 2;
+        controlRow = 3;
+        variableDropDown = addVariableSelector(mainGrid, opts, opts.Variable);
+    else
+        mainGrid = uigridlayout(fig, [2, 1]);
+        mainGrid.RowHeight = {'1x', controlPanelHeight};
+        plotRow = 1;
+        controlRow = 2;
+        variableDropDown = gobjects(0);
+    end
     mainGrid.Padding = [12, 12, 12, 12];
     mainGrid.RowSpacing = 8;
 
-    ax = uiaxes(mainGrid);
-    ax.Layout.Row = 1;
+    plotGrid = uigridlayout(mainGrid, [1, 1]);
+    plotGrid.Layout.Row = plotRow;
+    plotGrid.Padding = [0, 0, 0, 18];
+    plotGrid.RowSpacing = 0;
+    plotGrid.ColumnSpacing = 0;
+    ax = uiaxes(plotGrid);
     ax.Box = 'on';
     ax.FontName = 'Consolas';
     ax.FontSize = 12;
@@ -396,7 +1038,7 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
 
     controlPanel = uipanel(mainGrid, 'Title', '切片控制', ...
         'FontWeight', 'bold', 'BackgroundColor', [0.98, 0.98, 0.99]);
-    controlPanel.Layout.Row = 2;
+    controlPanel.Layout.Row = controlRow;
     controls = uigridlayout(controlPanel, [4, 10]);
     controls.RowHeight = {28, 34 * double(showModeControl), ...
         42 * double(showSliceControlRow), 36 * double(showPlaybackControl)};
@@ -526,6 +1168,7 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
     state = struct( ...
         'Data', volumeData, ...
         'DataSize', dataSize, ...
+        'FieldDimension', fieldDimension, ...
         'Variable', opts.Variable, ...
         'PlotMode', 'slice', ...
         'Options', opts, ...
@@ -538,6 +1181,7 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
         'Axes', ax, ...
         'Colorbar', cb, ...
         'Image', gobjects(0), ...
+        'VariableDropDown', variableDropDown, ...
         'ModeDropDown', modeDropDown, ...
         'DimensionDropDown', dimDropDown, ...
         'IndexSlider', indexSlider, ...
@@ -552,6 +1196,10 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
 
     if ~isempty(modeDropDown) && isgraphics(modeDropDown)
         modeDropDown.ValueChangedFcn = @(source, event) onPlotModeChanged(fig, source, event);
+    end
+    if ~isempty(variableDropDown) && isgraphics(variableDropDown)
+        variableDropDown.ValueChangedFcn = ...
+            @(source, event) onVariableChanged(fig, source, event);
     end
     if ~isempty(dimDropDown) && isgraphics(dimDropDown)
         dimDropDown.ValueChangedFcn = @(source, event) onSliceDimensionChanged(fig, source, event);
@@ -662,23 +1310,29 @@ function renderSlice(fig, requestedIndex, synchronizeSlider)
         synchronizeSlider = true;
     end
     state = fig.UserData;
-    dimension = state.Dimension;
-    index = min(max(round(requestedIndex), 1), state.DataSize(dimension));
-
-    switch dimension
-        case 1
-            plane = squeeze(state.Data(index, :, :));
-        case 2
-            plane = squeeze(state.Data(:, index, :));
-        case 3
-            plane = state.Data(:, :, index);
+    if state.FieldDimension == 2
+        dimension = [];
+        index = [];
+        plane = state.Data;
+        remainingDims = [1, 2];
+    else
+        dimension = state.Dimension;
+        index = min(max(round(requestedIndex), 1), state.DataSize(dimension));
+        switch dimension
+            case 1
+                plane = squeeze(state.Data(index, :, :));
+            case 2
+                plane = squeeze(state.Data(:, index, :));
+            case 3
+                plane = state.Data(:, :, index);
+        end
+        remainingDims = setdiff(1:3, dimension, 'stable');
     end
 
     % Transpose so that the first remaining array dimension is horizontal
     % and the second is vertical, rather than silently treating matrix rows
     % as a physical X coordinate.
     displayPlane = plane.';
-    remainingDims = setdiff(1:3, dimension, 'stable');
 
     if isempty(state.Image) || ~isgraphics(state.Image)
         state.Image = imagesc(state.Axes, displayPlane);
@@ -718,8 +1372,13 @@ function renderSlice(fig, requestedIndex, synchronizeSlider)
     state.SliceLabel.Text = sprintf('切片 [min, max]：%s / %s', ...
         formatNumber(sliceRange(1)), formatNumber(sliceRange(2)));
 
-    title(state.Axes, sprintf('%s  |  Dim %d = %d', ...
-        state.Variable, dimension, index), 'Interpreter', 'none');
+    if state.FieldDimension == 2
+        title(state.Axes, sprintf('%s  |  2-D array', state.Variable), ...
+            'Interpreter', 'none');
+    else
+        title(state.Axes, sprintf('%s  |  Dim %d = %d', ...
+            state.Variable, dimension, index), 'Interpreter', 'none');
+    end
     xlabel(state.Axes, sprintf('Dim %d index', remainingDims(1)));
     ylabel(state.Axes, sprintf('Dim %d index', remainingDims(2)));
     axis(state.Axes, 'xy');
@@ -735,6 +1394,11 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
     if nargin < 4
         existingFig = [];
     end
+    if opts.FieldDimension ~= 3
+        error('visualizeMatField:VolumeRequires3D', ...
+            'Volume mode requires a real numeric 3-D array.');
+    end
+    showVariableControl = ~opts.Specified.Variable;
     showModeControl = ~opts.Specified.PlotType;
     useExactIsoValues = opts.Specified.IsoValues;
     automaticModeSpecified = opts.Specified.NumIsosurfaces || opts.Specified.IsoRange;
@@ -764,14 +1428,30 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
 
     figName = sprintf('%s | 3-D isosurfaces', opts.Variable);
     fig = prepareViewerFigure(existingFig, figName, [120, 70, 1180, 830], opts.Visible);
-    mainGrid = uigridlayout(fig, [2, 1]);
-    mainGrid.RowHeight = {'1x', baseControlPanelHeight + ...
-        36 * double(showExactPlaybackInitially)};
+    controlPanelHeight = baseControlPanelHeight + ...
+        36 * double(showExactPlaybackInitially);
+    if showVariableControl
+        mainGrid = uigridlayout(fig, [3, 1]);
+        mainGrid.RowHeight = {42, '1x', controlPanelHeight};
+        plotRow = 2;
+        controlRow = 3;
+        variableDropDown = addVariableSelector(mainGrid, opts, opts.Variable);
+    else
+        mainGrid = uigridlayout(fig, [2, 1]);
+        mainGrid.RowHeight = {'1x', controlPanelHeight};
+        plotRow = 1;
+        controlRow = 2;
+        variableDropDown = gobjects(0);
+    end
     mainGrid.Padding = [18, 18, 18, 18];
     mainGrid.RowSpacing = 8;
 
-    ax = uiaxes(mainGrid);
-    ax.Layout.Row = 1;
+    plotGrid = uigridlayout(mainGrid, [1, 1]);
+    plotGrid.Layout.Row = plotRow;
+    plotGrid.Padding = [0, 0, 0, 18];
+    plotGrid.RowSpacing = 0;
+    plotGrid.ColumnSpacing = 0;
+    ax = uiaxes(plotGrid);
     ax.Box = 'on';
     ax.FontName = 'Consolas';
     ax.FontSize = 12;
@@ -782,7 +1462,7 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
 
     controlPanel = uipanel(mainGrid, 'Title', '三维等值面控制', ...
         'FontWeight', 'bold', 'BackgroundColor', [0.98, 0.98, 0.99]);
-    controlPanel.Layout.Row = 2;
+    controlPanel.Layout.Row = controlRow;
     controls = uigridlayout(controlPanel, [5, 14]);
     controls.RowHeight = {28, 34 * double(showModeControl), ...
         36 * double(showIsoModeControl), 46 * double(showVolumeControlRow), ...
@@ -966,6 +1646,8 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
 
     state = struct( ...
         'Data', volumeData, ...
+        'DataSize', size(volumeData), ...
+        'FieldDimension', 3, ...
         'HasRendered', false, ...
         'Variable', opts.Variable, ...
         'PlotMode', 'volume', ...
@@ -983,6 +1665,7 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
         'ToolbarButtons', gobjects(0), ...
         'Colorbar', cb, ...
         'SampleIndices', {sampleIndices}, ...
+        'VariableDropDown', variableDropDown, ...
         'ModeDropDown', modeDropDown, ...
         'IsoModeDropDown', isoModeDropDown, ...
         'CountSpinner', countSpinner, ...
@@ -1000,6 +1683,7 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
         'PlaybackTimer', playbackTimer, ...
         'MainGrid', mainGrid, ...
         'ControlsGrid', controls, ...
+        'ControlPanelRow', controlRow, ...
         'BaseControlPanelHeight', baseControlPanelHeight, ...
         'LastAlphaRenderClock', tic, ...
         'Patches', gobjects(0));
@@ -1007,6 +1691,10 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
 
     if ~isempty(modeDropDown) && isgraphics(modeDropDown)
         modeDropDown.ValueChangedFcn = @(source, event) onPlotModeChanged(fig, source, event);
+    end
+    if ~isempty(variableDropDown) && isgraphics(variableDropDown)
+        variableDropDown.ValueChangedFcn = ...
+            @(source, event) onVariableChanged(fig, source, event);
     end
     if ~isempty(isoModeDropDown) && isgraphics(isoModeDropDown)
         isoModeDropDown.ValueChangedFcn = ...
@@ -1097,7 +1785,8 @@ function onIsoSelectionModeChanged(fig, source, ~)
     rowHeights{5} = 36 * double(showPlayback);
     state.ControlsGrid.RowHeight = rowHeights;
     mainRowHeights = state.MainGrid.RowHeight;
-    mainRowHeights{2} = state.BaseControlPanelHeight + 36 * double(showPlayback);
+    mainRowHeights{state.ControlPanelRow} = ...
+        state.BaseControlPanelHeight + 36 * double(showPlayback);
     state.MainGrid.RowHeight = mainRowHeights;
     setVolumeAlphaLayout(state.AlphaText, state.AlphaSlider, ...
         state.IsoSelectionMode);

@@ -1,11 +1,16 @@
 %% visualizeMatField usage examples
 % Run one section at a time (Ctrl+Enter in the MATLAB Editor).
 
-%% 1. Required MAT file and variable, all other options use defaults
+%% 1. MAT file and variable specified, all other options use defaults
 % Volume mode. Use the in-window dropdown to switch modes.
 matFile = fullfile(fileparts(mfilename('fullpath')), ...
     'Data', 'data_uniGrid_zFlowDirct.mat');
 visualizeMatField(matFile, 'rho.rho_XYZ');
+
+%% 1a. Select the child variable inside the viewer
+% The image area starts empty and the other controls stay disabled until a
+% variable is selected from the dropdown above the image.
+% visualizeMatField(matFile);
 
 %% 2. Precisely specified slice
 % 'figure' is accepted as an alias of 'slice'. The dimension accepts
@@ -41,3 +46,13 @@ visualizeMatField(matFile, 'rho.rho_XYZ');
 %     'Index', 60, ...
 %     'ColorLimits', 'slice', ...
 %     'Colormap', 'parula');
+
+%% 8. Generic MAT layouts and two-dimensional targets
+% A target may be a top-level numeric matrix or an arbitrarily nested field
+% inside scalar structures. A 2-D target (including [nx, ny, 1] after
+% MATLAB removes the trailing singleton dimension) is displayed directly in
+% Slice mode and has no dimension/index/Volume controls.
+%
+% visualizeMatField('D:\data\another_file.mat', 'topLevelMatrix')
+% visualizeMatField('D:\data\another_file.mat', ...
+%     'caseA.flow.temperature', 'PlotType', 'slice')

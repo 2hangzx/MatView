@@ -1,7 +1,22 @@
-# 三维 MAT 场可视化
+# 通用 MAT 二维/三维场可视化
 
-主入口是 `visualizeMatField.m`。每次调用都必须明确传入 MAT 文件和二级变量路径。
-绘图模式及其下级参数可以省略；未指定绘图模式时默认显示三维多等值面。
+主入口是 `visualizeMatField.m`。每次调用必须明确传入 MAT 文件，目标变量路径可以省略。
+脚本不依赖 `data_uniGrid_zFlowDirct.mat` 的固定字段结构，会递归发现顶层或嵌套标量
+structure 中符合规则的数组。省略变量时先显示变量选择界面；绘图模式及其下级参数也
+可以省略。三维变量未指定绘图模式时默认使用多等值面，二维变量则自动使用 Slice。
+
+## 目标变量规则
+
+脚本只把以下数据视为可绘制目标：
+
+- 实数数值二维矩阵 `[num_x, num_y]`：仅支持 Slice，直接绘制完整矩阵。
+- 实数数值三维数组 `[num_x, num_y, num_z]`：支持 Slice 和 Volume。
+- `[num_x, num_y, 1]` 的尾部单例维在 MATLAB 中会被折叠，按二维矩阵处理，仅支持 Slice。
+
+向量、标量、四维及更高维数组、复数、logical、char/string、cell、table 和非标量
+structure 都不会进入目标变量下拉列表。二维与三维目标的各个有效轴长度必须大于 1。
+变量路径既可以是顶层名称（如 `top2`），也可以是任意深度的点分路径（如
+`caseA.flow.temperature`）。
 
 ## 常用命令
 
@@ -9,7 +24,10 @@
 cd('D:\myDocuments\BUAA\NeRF-RI\CFDdata\SwirlFlame')
 matFile = fullfile(pwd, 'Data', 'data_uniGrid_zFlowDirct.mat');
 
-% MAT 文件和二级变量必填，其余使用默认值（volume）
+% 只指定 MAT 文件：先在窗口顶部选择目标变量
+visualizeMatField(matFile)
+
+% MAT 文件和三维变量均已指定，其余使用默认值（volume）
 visualizeMatField(matFile, 'rho.rho_XYZ')
 
 % 精确指定变量、图形、切片维度和索引
@@ -41,11 +59,13 @@ visualizeMatField(matFile, 'T.T_XYZ', ...
 统一调用形式为：
 
 ```matlab
-visualizeMatField(matFile, variablePath, Name, Value, ...)
+visualizeMatField(matFile, [variablePath], Name, Value, ...)
 ```
 
-- `matFile` 和 `variablePath` 决定“读取哪个文件的哪个数组”，是必需的位置参数。
-- 从第三个参数开始全部为可选 Name-Value，包括 `PlotType`；Name-Value 的排列顺序任意。
+- `matFile` 是必需的第一个位置参数。
+- `variablePath` 是可选的第二个位置参数，可以是顶层名称或嵌套点分路径；省略时由
+  窗口中的下拉框选择。
+- Name-Value 位于变量路径之后；省略变量路径时可以紧跟在 `matFile` 后面，排列顺序任意。
 - 同一个参数不同时支持位置与 Name-Value 两套写法，避免无法判断用户是否显式指定。
 - 参数名称大小写不敏感，但必须写完整，不接受 `PlotT` 等缩写。
 
@@ -58,8 +78,30 @@ visualizeMatField('Data/data_uniGrid_zFlowDirct.mat', 'n.gradX_XYZ', ...
     'Index', 60)
 ```
 
+也可以在未指定变量时预先固定绘图模式：
+
+```matlab
+visualizeMatField(matFile, 'PlotType', 'slice', 'Dimension', 2)
+```
+
+## 变量选择
+
+- 未在命令行指定 `variablePath` 时，窗口顶部显示“目标变量”下拉框，图像区初始为空。
+- 首次选择变量之前，当前绘图模式下的控制台选项全部禁用；只有目标变量下拉框可操作。
+- 选择变量后会立即加载该数组，更新完整数据范围、采样信息及相关控件并自动绘图。
+- 更换目标变量同样立即更新，不需要“重新绘图”按钮。
+- 在 Slice 模式更换不同尺寸的数组时，尽量保持原切片在所选维度中的相对位置。
+- 命令行已明确指定变量时不显示变量下拉框，界面与原调用方式一致。
+- 下拉框只列出符合“实数数值二维/三维数组”规则的目标，并显示数组尺寸与维数。
+- 对 v7.3 MAT 文件，变量列表递归读取 HDF5 元数据，不会为了生成下拉列表预先加载
+  全部数组；对早期 MAT 格式，顶层数值数组使用 `whos` 元数据判断，只有标量 structure
+  会按顶层变量逐个加载并递归检查。
+
 ## Slice 模式
 
+- 二维目标直接显示完整矩阵，不提供切片维度、索引或索引自动播放控件，也不允许切换
+  到 Volume。
+- 三维目标才使用以下维度、索引和自动播放逻辑。
 - 未在命令行指定 `Dimension` 时才显示维度下拉框；`1/2/3` 也可以写成
   `I/J/K` 或 `X/Y/Z`。
 - 未在命令行指定 `Index` 时才显示索引滑块和数值输入框，初值为该维度中点。
@@ -73,10 +115,11 @@ visualizeMatField('Data/data_uniGrid_zFlowDirct.mat', 'n.gradX_XYZ', ...
 
 ## 模式切换
 
-只有命令行未指定 `PlotType` 时，窗口才显示“绘图模式”下拉框，可以在
+对于三维变量，只有命令行未指定 `PlotType` 时，窗口才显示“绘图模式”下拉框，可以在
 `Volume（三维等值面）` 和 `Slice（二维切片）` 之间切换。切换会立即重建当前窗口中的
 绘图区和当前模式所需的下级控制项，同时复用内存中已经加载的数组，不会再次读取 MAT
-文件。命令行已指定 `PlotType` 时，不显示模式下拉框。
+文件。命令行已指定 `PlotType` 时，不显示模式下拉框。二维变量只有 Slice 一种有效模式，
+因此不显示模式下拉框；若显式为二维变量指定 `PlotType='volume'`，脚本会给出说明性错误。
 
 ## 三维模式的选择
 
