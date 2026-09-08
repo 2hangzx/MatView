@@ -5,7 +5,7 @@ function fig = visualizeMatField(matFile, varargin)
 %   visualizeMatField('Data/data_uniGrid_zFlowDirct.mat')
 %   visualizeMatField('Data/data_uniGrid_zFlowDirct.mat', 'rho.rho_XYZ')
 %   visualizeMatField('Data/data_uniGrid_zFlowDirct.mat', 'T.T_XYZ', ...
-%       'PlotType', 'slice', 'Dimension', 'Z', 'Index', 80)
+%       'PlotType', 'slice', 'Dimension', 3, 'Index', 80)
 %   visualizeMatField('Data/data_uniGrid_zFlowDirct.mat', ...
 %       'rho.gradNorm_XYZ', 'PlotType', 'volume')
 %
@@ -25,7 +25,7 @@ function fig = visualizeMatField(matFile, varargin)
 %
 % Defaults
 %   plot type         volume
-%   slice dimension   3 (Z/K)
+%   slice dimension   3
 %   slice index       center of the selected dimension
 %   color limits      global data range
 %   isosurfaces       5, spanning 15%%--85%% of the global value range
@@ -33,7 +33,7 @@ function fig = visualizeMatField(matFile, varargin)
 % Optional inputs are Name-Value parameters only
 %   PlotType          'volume' (default), 'slice'/'figure', or '3d'
 %                     /'isosurface'
-%   Dimension         1/2/3, I/J/K, or X/Y/Z
+%   Dimension         Numeric scalar 1, 2, or 3
 %   Index             Positive integer slice index
 %   Colormap          MATLAB colormap name, default 'turbo'
 %   ColorLimits       'global', 'slice', or numeric [low high]
@@ -46,9 +46,8 @@ function fig = visualizeMatField(matFile, varargin)
 %   Visible           'on' or 'off', default 'on' (useful for tests)
 %
 % Notes
-%   Array dimensions are deliberately labelled Dim 1/2/3. This avoids
-%   silently assuming that an *_IJK and an *_XYZ variable use identical
-%   physical-axis conventions.
+%   Array dimensions are deliberately labelled Dim 1/2/3. The viewer does
+%   not infer any physical meaning or coordinate convention for an axis.
 %   Volume mode provides rotate, pan, zoom-in, zoom-out and restore-view
 %   tools in the UIAxes hover toolbar. Default 3-D mouse interactions are
 %   also enabled.
@@ -740,8 +739,8 @@ function createDisabledSliceControls(controlPanel, opts)
         label.Layout.Row = 3;
         label.Layout.Column = 1;
         control = uidropdown(controls, ...
-            'Items', {'Dim 1 (I/X)', 'Dim 2 (J/Y)', 'Dim 3 (K/Z)'}, ...
-            'Value', 'Dim 3 (K/Z)', 'Enable', 'off');
+            'Items', {'Dim 1', 'Dim 2', 'Dim 3'}, ...
+            'Value', 'Dim 3', 'Enable', 'off');
         control.Layout.Row = 3;
         control.Layout.Column = 2;
     end
@@ -1086,7 +1085,7 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
         dimText.Layout.Row = 3;
         dimText.Layout.Column = 1;
         dimDropDown = uidropdown(controls, ...
-            'Items', {'Dim 1 (I/X)', 'Dim 2 (J/Y)', 'Dim 3 (K/Z)'}, ...
+            'Items', {'Dim 1', 'Dim 2', 'Dim 3'}, ...
             'ItemsData', [1, 2, 3], 'Value', dimension);
         dimDropDown.Layout.Row = 3;
         dimDropDown.Layout.Column = 2;
@@ -2006,12 +2005,13 @@ function renderVolume(fig)
     cla(state.Axes);
     hold(state.Axes, 'on');
     state.Axes.CLim = state.ColorLimits;
-    iIndices = state.SampleIndices{1};
-    jIndices = state.SampleIndices{2};
-    kIndices = state.SampleIndices{3};
+    dim1Indices = state.SampleIndices{1};
+    dim2Indices = state.SampleIndices{2};
+    dim3Indices = state.SampleIndices{3};
 
     if valueSpan == 0
-        text(state.Axes, mean(iIndices), mean(jIndices), mean(kIndices), ...
+        text(state.Axes, mean(dim1Indices), mean(dim2Indices), ...
+            mean(dim3Indices), ...
             sprintf('常量场：%s', formatNumber(state.GlobalRange(1))), ...
             'HorizontalAlignment', 'center', 'FontSize', 14);
         levels = state.GlobalRange(1);
@@ -2026,13 +2026,14 @@ function renderVolume(fig)
             levels = linspace(levelBounds(1), levelBounds(2), count);
         end
 
-        sampled = state.Data(iIndices, jIndices, kIndices);
+        sampled = state.Data(dim1Indices, dim2Indices, dim3Indices);
         sampled(~isfinite(sampled)) = NaN;
 
-        % Permuting [I J K] -> [J I K] makes MATLAB's meshgrid X/Y/Z
-        % coordinates correspond to array dimensions 1/2/3 respectively.
+        % Permute the first two array dimensions so meshgrid coordinates
+        % correspond to array dimensions 1/2/3 respectively.
         sampledForPlot = permute(sampled, [2, 1, 3]);
-        [coord1, coord2, coord3] = meshgrid(iIndices, jIndices, kIndices);
+        [coord1, coord2, coord3] = meshgrid( ...
+            dim1Indices, dim2Indices, dim3Indices);
         map = colormap(state.Axes);
         patches = gobjects(0);
 
@@ -2062,9 +2063,9 @@ function renderVolume(fig)
     hold(state.Axes, 'off');
     grid(state.Axes, 'on');
     box(state.Axes, 'on');
-    state.Axes.XLim = makeSafeLimits([iIndices(1), iIndices(end)]);
-    state.Axes.YLim = makeSafeLimits([jIndices(1), jIndices(end)]);
-    state.Axes.ZLim = makeSafeLimits([kIndices(1), kIndices(end)]);
+    state.Axes.XLim = makeSafeLimits([dim1Indices(1), dim1Indices(end)]);
+    state.Axes.YLim = makeSafeLimits([dim2Indices(1), dim2Indices(end)]);
+    state.Axes.ZLim = makeSafeLimits([dim3Indices(1), dim3Indices(end)]);
     axis(state.Axes, 'vis3d');
     daspect(state.Axes, [1, 1, 1]);
     if state.HasRendered
@@ -2204,21 +2205,7 @@ function dimension = normalizeDimension(dimension)
         dimension = 3;
         return
     end
-    if isnumeric(dimension)
-        dimension = double(dimension);
-        return
-    end
-    switch upper(char(string(dimension)))
-        case {'1', 'I', 'X'}
-            dimension = 1;
-        case {'2', 'J', 'Y'}
-            dimension = 2;
-        case {'3', 'K', 'Z'}
-            dimension = 3;
-        otherwise
-            error('visualizeMatField:Dimension', ...
-                'Dimension must be 1/2/3 or I/J/K or X/Y/Z.');
-    end
+    dimension = double(dimension);
 end
 
 
@@ -2256,8 +2243,7 @@ end
 function tf = isDimensionValue(value)
     tf = isempty(value) || ...
         (isnumeric(value) && isscalar(value) && isfinite(value) && ...
-         value == fix(value) && value >= 1 && value <= 3) || ...
-        isTextScalar(value);
+         value == fix(value) && value >= 1 && value <= 3);
 end
 
 

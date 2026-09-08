@@ -32,7 +32,7 @@ visualizeMatField(matFile, 'rho.rho_XYZ')
 
 % 精确指定变量、图形、切片维度和索引
 visualizeMatField(matFile, 'T.T_XYZ', ...
-    'PlotType', 'slice', 'Dimension', 'Z', 'Index', 80)
+    'PlotType', 'slice', 'Dimension', 3, 'Index', 80)
 
 % 指定变量和维度，索引自动取中间值
 visualizeMatField(matFile, 'GD.gradNorm_XYZ', ...
@@ -102,8 +102,8 @@ visualizeMatField(matFile, 'PlotType', 'slice', 'Dimension', 2)
 - 二维目标直接显示完整矩阵，不提供切片维度、索引或索引自动播放控件，也不允许切换
   到 Volume。
 - 三维目标才使用以下维度、索引和自动播放逻辑。
-- 未在命令行指定 `Dimension` 时才显示维度下拉框；`1/2/3` 也可以写成
-  `I/J/K` 或 `X/Y/Z`。
+- `Dimension` 只接受数值 `1`、`2` 或 `3`，分别表示 MATLAB 数组的第一、第二或第三维。
+- 未在命令行指定 `Dimension` 时才显示 `Dim 1/Dim 2/Dim 3` 维度下拉框。
 - 未在命令行指定 `Index` 时才显示索引滑块和数值输入框，初值为该维度中点。
 - 索引控件出现时同时提供自动播放：从当前索引逐帧递增，到该维末尾后从 1 循环；
   播放间隔可以直接设置。
@@ -178,6 +178,6 @@ Volume 绘图区会为标题、三维坐标框和刻度预留边距，初始视�
 
 ## 维度约定
 
-图中有意使用 `Dim 1/2/3`，没有擅自把数组维度解释成物理 `X/Y/Z`。这是因为项目同时
-保存了 `*_IJK` 和 `*_XYZ` 字段，其内存维度与物理坐标的对应关系需要由数据生成约定确认。
-三维图的三个坐标轴严格对应 MATLAB 数组的第一、第二和第三维。
+脚本只使用 `Dim 1/2/3` 描述 MATLAB 数组的第一、第二和第三维，不推断这些维度的
+坐标名称或物理含义。数据维度可以代表空间、时间或其他自变量，具体含义由用户依据
+数据来源判断。三维图的三个坐标轴严格对应数组的第一、第二和第三维。
