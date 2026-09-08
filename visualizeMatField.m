@@ -46,9 +46,9 @@ function fig = visualizeMatField(matFile, variablePath, varargin)
 %   Array dimensions are deliberately labelled Dim 1/2/3. This avoids
 %   silently assuming that an *_IJK and an *_XYZ variable use identical
 %   physical-axis conventions.
-%   Volume mode adds an always-visible toolbar for rotate, pan, zoom-in,
-%   zoom-out and restore-view, plus the UIAxes hover tools. Default 3-D
-%   mouse interactions are also enabled.
+%   Volume mode provides rotate, pan, zoom-in, zoom-out and restore-view
+%   tools in the UIAxes hover toolbar. Default 3-D mouse interactions are
+%   also enabled.
 
     if nargin < 1
         error('visualizeMatField:MatFileRequired', ...
@@ -273,13 +273,15 @@ function fig = prepareViewerFigure(existingFig, figName, defaultPosition, visibl
     if isempty(existingFig)
         fig = uifigure('Name', figName, 'Position', defaultPosition, ...
             'Color', [0.97, 0.97, 0.98], 'Visible', visible, ...
-            'ToolBar', 'figure');
+            'ToolBar', 'figure', ...
+            'CloseRequestFcn', @(source, event) closeViewerFigure(source, event));
     else
         if ~isvalid(existingFig)
             error('visualizeMatField:InvalidFigure', ...
                 'The viewer figure was closed before its mode could be changed.');
         end
         fig = existingFig;
+        stopViewerPlayback(fig, true);
         delete(fig.Children);
         fig.Name = figName;
         fig.Color = [0.97, 0.97, 0.98];
@@ -325,6 +327,8 @@ function onPlotModeChanged(fig, source, ~)
                 end
             end
             opts.IsoValues = state.IsoValues;
+            opts.RuntimeIsoSelectionMode = state.IsoSelectionMode;
+            opts.RuntimeExactIsoValue = state.ExactIsoValue;
             opts.SurfaceAlpha = state.SurfaceAlpha;
             if ~isempty(state.AlphaSlider) && isgraphics(state.AlphaSlider)
                 opts.SurfaceAlpha = state.AlphaSlider.Value;
@@ -370,12 +374,13 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
     showIndexControl = ~opts.Specified.Index;
     showColorControl = ~opts.Specified.ColorLimits;
     showSliceControlRow = showDimensionControl || showIndexControl || showColorControl;
+    showPlaybackControl = showIndexControl;
 
     figName = sprintf('%s | slice', opts.Variable);
     fig = prepareViewerFigure(existingFig, figName, [120, 80, 1120, 800], opts.Visible);
     mainGrid = uigridlayout(fig, [2, 1]);
-    mainGrid.RowHeight = {'1x', 84 + 34 * double(showModeControl) + ...
-        42 * double(showSliceControlRow)};
+    mainGrid.RowHeight = {'1x', 100 + 34 * double(showModeControl) + ...
+        42 * double(showSliceControlRow) + 36 * double(showPlaybackControl)};
     mainGrid.Padding = [12, 12, 12, 12];
     mainGrid.RowSpacing = 8;
 
@@ -392,12 +397,13 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
     controlPanel = uipanel(mainGrid, 'Title', '切片控制', ...
         'FontWeight', 'bold', 'BackgroundColor', [0.98, 0.98, 0.99]);
     controlPanel.Layout.Row = 2;
-    controls = uigridlayout(controlPanel, [3, 10]);
+    controls = uigridlayout(controlPanel, [4, 10]);
     controls.RowHeight = {28, 34 * double(showModeControl), ...
-        42 * double(showSliceControlRow)};
-    controls.ColumnWidth = {62, 130, 42, '1x', '1x', '1x', 72, 48, 78, 105};
-    controls.Padding = [10, 6, 10, 8];
+        42 * double(showSliceControlRow), 36 * double(showPlaybackControl)};
+    controls.ColumnWidth = {62, 130, 42, '1x', '1x', '1x', 72, 24, 60, 145};
+    controls.Padding = [10, 14, 10, 8];
     controls.ColumnSpacing = 7;
+    controls.RowSpacing = 6;
 
     variableLabel = uilabel(controls, ...
         'Text', sprintf('变量：%s', opts.Variable), 'FontWeight', 'bold');
@@ -463,6 +469,33 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
         indexEdit.Layout.Column = 7;
     end
 
+    playButton = gobjects(0);
+    playbackIntervalEdit = gobjects(0);
+    playbackTimer = [];
+    if showPlaybackControl
+        playbackText = uilabel(controls, 'Text', '自动播放');
+        playbackText.Layout.Row = 4;
+        playbackText.Layout.Column = 1;
+        playButton = uibutton(controls, 'push', 'Text', '播放');
+        playButton.Layout.Row = 4;
+        playButton.Layout.Column = 2;
+        intervalText = uilabel(controls, 'Text', '间隔(s)');
+        intervalText.Layout.Row = 4;
+        intervalText.Layout.Column = 3;
+        playbackIntervalEdit = uieditfield(controls, 'numeric', ...
+            'Limits', [0.03, 10], 'ValueDisplayFormat', '%.2f', 'Value', 0.12);
+        playbackIntervalEdit.Layout.Row = 4;
+        playbackIntervalEdit.Layout.Column = 4;
+        playbackHint = uilabel(controls, ...
+            'Text', '从当前索引向后播放，到末尾后从 1 循环。', ...
+            'FontColor', [0.35, 0.35, 0.38]);
+        playbackHint.Layout.Row = 4;
+        playbackHint.Layout.Column = [5, 10];
+        playbackTimer = timer('ExecutionMode', 'fixedSpacing', ...
+            'BusyMode', 'drop', 'Period', playbackIntervalEdit.Value, ...
+            'TimerFcn', @(source, event) advanceSlicePlayback(fig, source, event));
+    end
+
     if isnumeric(opts.ColorLimits)
         colorMode = 'custom';
         customClim = makeSafeLimits(opts.ColorLimits);
@@ -473,12 +506,12 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
 
     colorDropDown = gobjects(0);
     if showColorControl
-        colorText = uilabel(controls, 'Text', '色标');
+        colorText = uilabel(controls, 'Text', '颜色栏');
         colorText.Layout.Row = 3;
-        colorText.Layout.Column = 8;
+        colorText.Layout.Column = 9;
         colorDropDown = uidropdown(controls);
         colorDropDown.Layout.Row = 3;
-        colorDropDown.Layout.Column = [9, 10];
+        colorDropDown.Layout.Column = 10;
         if isnumeric(opts.ColorLimits)
             colorDropDown.Items = {'全局范围', '当前切片', '固定输入范围'};
             colorDropDown.ItemsData = {'global', 'slice', 'custom'};
@@ -510,7 +543,11 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
         'IndexSlider', indexSlider, ...
         'IndexEdit', indexEdit, ...
         'ColorDropDown', colorDropDown, ...
-        'SliceLabel', sliceLabel);
+        'SliceLabel', sliceLabel, ...
+        'PlayButton', playButton, ...
+        'PlaybackIntervalEdit', playbackIntervalEdit, ...
+        'PlaybackTimer', playbackTimer, ...
+        'LastSliceRenderClock', tic);
     fig.UserData = state;
 
     if ~isempty(modeDropDown) && isgraphics(modeDropDown)
@@ -524,6 +561,11 @@ function fig = createSliceFigure(volumeData, opts, globalRange, existingFig)
         indexSlider.ValueChangedFcn = @(source, event) onSliceSliderChanged(fig, source, event);
         indexEdit.ValueChangedFcn = @(source, event) onSliceIndexEdited(fig, source, event);
     end
+    if ~isempty(playButton) && isgraphics(playButton)
+        playButton.ButtonPushedFcn = @(source, event) toggleViewerPlayback(fig, source, event);
+        playbackIntervalEdit.ValueChangedFcn = ...
+            @(source, event) updateViewerPlaybackPeriod(fig, source, event);
+    end
     if ~isempty(colorDropDown) && isgraphics(colorDropDown)
         colorDropDown.ValueChangedFcn = @(source, event) onSliceColorModeChanged(fig, source, event);
     end
@@ -536,6 +578,7 @@ function onSliceDimensionChanged(fig, source, ~)
     if ~isvalid(fig)
         return
     end
+    pauseViewerPlayback(fig);
     state = fig.UserData;
     oldLength = state.DataSize(state.Dimension);
     oldIndex = state.Index;
@@ -561,21 +604,41 @@ end
 
 function onSliceSliderMoving(fig, ~, event)
     if isvalid(fig)
-        renderSlice(fig, round(event.Value));
+        pauseViewerPlayback(fig);
+        state = fig.UserData;
+        index = round(event.Value);
+        if ~isempty(state.IndexEdit) && isgraphics(state.IndexEdit)
+            if state.IndexEdit.Value ~= index
+                state.IndexEdit.Value = index;
+            end
+        end
+        if index == state.Index
+            fig.UserData = state;
+            return
+        end
+        if toc(state.LastSliceRenderClock) < 0.04
+            fig.UserData = state;
+            return
+        end
+        state.LastSliceRenderClock = tic;
+        fig.UserData = state;
+        renderSlice(fig, index, false);
     end
 end
 
 
 function onSliceSliderChanged(fig, source, ~)
     if isvalid(fig)
-        renderSlice(fig, round(source.Value));
+        pauseViewerPlayback(fig);
+        renderSlice(fig, round(source.Value), true);
     end
 end
 
 
 function onSliceIndexEdited(fig, source, ~)
     if isvalid(fig)
-        renderSlice(fig, round(source.Value));
+        pauseViewerPlayback(fig);
+        renderSlice(fig, round(source.Value), true);
     end
 end
 
@@ -591,9 +654,12 @@ function onSliceColorModeChanged(fig, source, ~)
 end
 
 
-function renderSlice(fig, requestedIndex)
+function renderSlice(fig, requestedIndex, synchronizeSlider)
     if ~isvalid(fig)
         return
+    end
+    if nargin < 3
+        synchronizeSlider = true;
     end
     state = fig.UserData;
     dimension = state.Dimension;
@@ -644,8 +710,10 @@ function renderSlice(fig, requestedIndex)
 
     state.Index = index;
     if ~isempty(state.IndexSlider) && isgraphics(state.IndexSlider)
-        state.IndexSlider.Value = index;
         state.IndexEdit.Value = index;
+        if synchronizeSlider
+            state.IndexSlider.Value = index;
+        end
     end
     state.SliceLabel.Text = sprintf('切片 [min, max]：%s / %s', ...
         formatNumber(sliceRange(1)), formatNumber(sliceRange(2)));
@@ -659,7 +727,7 @@ function renderSlice(fig, requestedIndex)
     state.Axes.XLim = [0.5, size(displayPlane, 2) + 0.5];
     state.Axes.YLim = [0.5, size(displayPlane, 1) + 0.5];
     fig.UserData = state;
-    drawnow limitrate
+    drawnow limitrate nocallbacks
 end
 
 
@@ -669,17 +737,36 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
     end
     showModeControl = ~opts.Specified.PlotType;
     useExactIsoValues = opts.Specified.IsoValues;
+    automaticModeSpecified = opts.Specified.NumIsosurfaces || opts.Specified.IsoRange;
+    showIsoModeControl = ~useExactIsoValues && ~automaticModeSpecified;
     showCountControl = ~useExactIsoValues && ~opts.Specified.NumIsosurfaces;
     showRangeControl = ~useExactIsoValues && ~opts.Specified.IsoRange;
     showAlphaControl = ~opts.Specified.SurfaceAlpha;
-    showRedrawButton = showCountControl || showRangeControl;
-    showVolumeControlRow = showCountControl || showRangeControl || showAlphaControl;
+    showExactValueControl = showIsoModeControl;
+    showVolumeControlRow = showCountControl || showRangeControl || ...
+        showExactValueControl || showAlphaControl;
+
+    isoSelectionMode = 'automatic';
+    if useExactIsoValues
+        isoSelectionMode = 'fixed';
+    elseif showIsoModeControl && isfield(opts, 'RuntimeIsoSelectionMode')
+        isoSelectionMode = opts.RuntimeIsoSelectionMode;
+    end
+    exactIsoValue = mean(globalRange);
+    if isfield(opts, 'RuntimeExactIsoValue')
+        exactIsoValue = opts.RuntimeExactIsoValue;
+    end
+    exactValueLimits = makeSafeLimits(globalRange);
+    exactIsoValue = max(exactValueLimits(1), min(exactValueLimits(2), exactIsoValue));
+    showExactPlaybackInitially = showExactValueControl && strcmp(isoSelectionMode, 'single');
+    baseControlPanelHeight = 100 + 34 * double(showModeControl) + ...
+        36 * double(showIsoModeControl) + 46 * double(showVolumeControlRow);
 
     figName = sprintf('%s | 3-D isosurfaces', opts.Variable);
     fig = prepareViewerFigure(existingFig, figName, [120, 70, 1180, 830], opts.Visible);
     mainGrid = uigridlayout(fig, [2, 1]);
-    mainGrid.RowHeight = {'1x', 84 + 34 * double(showModeControl) + ...
-        42 * double(showVolumeControlRow)};
+    mainGrid.RowHeight = {'1x', baseControlPanelHeight + ...
+        36 * double(showExactPlaybackInitially)};
     mainGrid.Padding = [18, 18, 18, 18];
     mainGrid.RowSpacing = 8;
 
@@ -692,17 +779,19 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
     colormap(ax, opts.Colormap);
     cb = colorbar(ax);
     cb.Label.String = 'Value';
-    [navigationToolbar, navigationTools] = createVolumeNavigationToolbar(fig);
 
     controlPanel = uipanel(mainGrid, 'Title', '三维等值面控制', ...
         'FontWeight', 'bold', 'BackgroundColor', [0.98, 0.98, 0.99]);
     controlPanel.Layout.Row = 2;
-    controls = uigridlayout(controlPanel, [3, 12]);
+    controls = uigridlayout(controlPanel, [5, 14]);
     controls.RowHeight = {28, 34 * double(showModeControl), ...
-        42 * double(showVolumeControlRow)};
-    controls.ColumnWidth = {58, 62, 76, 62, 76, 62, 55, '1x', '1x', '1x', 72, 72};
-    controls.Padding = [10, 6, 10, 8];
+        36 * double(showIsoModeControl), 46 * double(showVolumeControlRow), ...
+        36 * double(showExactPlaybackInitially)};
+    controls.ColumnWidth = {82, 62, 76, 62, 76, 62, 55, ...
+        '1x', '1x', '1x', 55, 62, 62, 72};
+    controls.Padding = [10, 14, 10, 8];
     controls.ColumnSpacing = 7;
+    controls.RowSpacing = 6;
 
     variableLabel = uilabel(controls, ...
         'Text', sprintf('变量：%s', opts.Variable), 'FontWeight', 'bold');
@@ -714,7 +803,7 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
         'Text', sprintf('全局 [min, max]：%s / %s', ...
         formatNumber(globalRange(1)), formatNumber(globalRange(2))));
     globalLabel.Layout.Row = 1;
-    globalLabel.Layout.Column = [6, 8];
+    globalLabel.Layout.Column = [6, 9];
 
     sampleIndices = cell(1, 3);
     for dim = 1:3
@@ -724,7 +813,7 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
     samplingLabel = uilabel(controls, ...
         'Text', sprintf('绘制采样：%s（统计使用完整数据）', mat2str(sampledSize)));
     samplingLabel.Layout.Row = 1;
-    samplingLabel.Layout.Column = [9, 12];
+    samplingLabel.Layout.Column = [10, 14];
 
     modeDropDown = gobjects(0);
     if showModeControl
@@ -740,58 +829,134 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
             'Text', '切换模式会立即复用当前数据重新绘图，无需重新加载 MAT 文件。', ...
             'FontColor', [0.35, 0.35, 0.38]);
         modeHint.Layout.Row = 2;
-        modeHint.Layout.Column = [5, 12];
+        modeHint.Layout.Column = [5, 14];
     end
 
+    isoModeDropDown = gobjects(0);
+    if showIsoModeControl
+        isoModeText = uilabel(controls, 'Text', '等值面方式');
+        isoModeText.Layout.Row = 3;
+        isoModeText.Layout.Column = 1;
+        isoModeDropDown = uidropdown(controls, ...
+            'Items', {'自动多层', '指定单值'}, ...
+            'ItemsData', {'automatic', 'single'}, 'Value', isoSelectionMode);
+        isoModeDropDown.Layout.Row = 3;
+        isoModeDropDown.Layout.Column = [2, 4];
+        isoModeHint = uilabel(controls, ...
+            'Text', '自动模式修改数量/范围后重绘；指定单值模式在松开滑条后重绘。', ...
+            'FontColor', [0.35, 0.35, 0.38]);
+        isoModeHint.Layout.Row = 3;
+        isoModeHint.Layout.Column = [5, 14];
+    end
+
+    automaticControls = {};
     countSpinner = gobjects(0);
     if showCountControl
         countText = uilabel(controls, 'Text', '等值面数');
-        countText.Layout.Row = 3;
+        countText.Layout.Row = 4;
         countText.Layout.Column = 1;
         countSpinner = uispinner(controls, 'Limits', [1, 12], 'Step', 1, ...
             'RoundFractionalValues', 'on', 'Value', opts.NumIsosurfaces);
-        countSpinner.Layout.Row = 3;
+        countSpinner.Layout.Row = 4;
         countSpinner.Layout.Column = 2;
+        automaticControls = [automaticControls, {countText, countSpinner}];
     end
 
     lowerEdit = gobjects(0);
     upperEdit = gobjects(0);
     if showRangeControl
         lowerText = uilabel(controls, 'Text', '范围下限%');
-        lowerText.Layout.Row = 3;
+        lowerText.Layout.Row = 4;
         lowerText.Layout.Column = 3;
         lowerEdit = uieditfield(controls, 'numeric', 'Limits', [0, 100], ...
             'ValueDisplayFormat', '%.1f', 'Value', 100 * opts.IsoRange(1));
-        lowerEdit.Layout.Row = 3;
+        lowerEdit.Layout.Row = 4;
         lowerEdit.Layout.Column = 4;
 
         upperText = uilabel(controls, 'Text', '范围上限%');
-        upperText.Layout.Row = 3;
+        upperText.Layout.Row = 4;
         upperText.Layout.Column = 5;
         upperEdit = uieditfield(controls, 'numeric', 'Limits', [0, 100], ...
             'ValueDisplayFormat', '%.1f', 'Value', 100 * opts.IsoRange(2));
-        upperEdit.Layout.Row = 3;
+        upperEdit.Layout.Row = 4;
         upperEdit.Layout.Column = 6;
+        automaticControls = [automaticControls, ...
+            {lowerText, lowerEdit, upperText, upperEdit}];
     end
 
+    alphaText = gobjects(0);
     alphaSlider = gobjects(0);
     if showAlphaControl
         alphaText = uilabel(controls, 'Text', '透明度');
-        alphaText.Layout.Row = 3;
+        alphaText.Layout.Row = 4;
         alphaText.Layout.Column = 7;
         alphaSlider = uislider(controls, 'Limits', [0.03, 1], ...
             'Value', opts.SurfaceAlpha, 'MajorTicks', [0.05, 0.25, 0.5, 0.75, 1]);
-        alphaSlider.Layout.Row = 3;
-        alphaSlider.Layout.Column = [8, 10];
+        alphaSlider.Layout.Row = 4;
+        alphaSlider.Layout.Column = [8, 14];
     end
 
-    redrawButton = gobjects(0);
-    if showRedrawButton
-        redrawButton = uibutton(controls, 'push', 'Text', '重新绘制', ...
-            'FontWeight', 'bold');
-        redrawButton.Layout.Row = 3;
-        redrawButton.Layout.Column = [11, 12];
+    exactValueEdit = gobjects(0);
+    exactValueSlider = gobjects(0);
+    exactControls = {};
+    if showExactValueControl
+        exactValueText = uilabel(controls, 'Text', '等值面数值');
+        exactValueText.Layout.Row = 4;
+        exactValueText.Layout.Column = [1, 2];
+        exactValueEdit = uieditfield(controls, 'numeric', ...
+            'Limits', exactValueLimits, 'ValueDisplayFormat', '%.6g', ...
+            'Value', exactIsoValue);
+        exactValueEdit.Layout.Row = 4;
+        exactValueEdit.Layout.Column = [3, 4];
+        exactValueSlider = uislider(controls, 'Limits', exactValueLimits, ...
+            'Value', exactIsoValue);
+        exactValueSlider.Layout.Row = 4;
+        if showAlphaControl
+            exactValueSlider.Layout.Column = [5, 10];
+        else
+            exactValueSlider.Layout.Column = [5, 14];
+        end
+        configureValueSliderTicks(exactValueSlider, globalRange);
+        exactControls = {exactValueText, exactValueEdit, exactValueSlider};
     end
+
+    playButton = gobjects(0);
+    playbackIntervalEdit = gobjects(0);
+    playbackTimer = [];
+    playbackControls = {};
+    if showExactValueControl
+        playbackText = uilabel(controls, 'Text', '单值自动播放');
+        playbackText.Layout.Row = 5;
+        playbackText.Layout.Column = [1, 2];
+        playButton = uibutton(controls, 'push', 'Text', '播放');
+        playButton.Layout.Row = 5;
+        playButton.Layout.Column = [3, 4];
+        intervalText = uilabel(controls, 'Text', '间隔(s)');
+        intervalText.Layout.Row = 5;
+        intervalText.Layout.Column = 5;
+        playbackIntervalEdit = uieditfield(controls, 'numeric', ...
+            'Limits', [0.05, 10], 'ValueDisplayFormat', '%.2f', 'Value', 0.35);
+        playbackIntervalEdit.Layout.Row = 5;
+        playbackIntervalEdit.Layout.Column = 6;
+        playbackHint = uilabel(controls, ...
+            'Text', '每帧增加全局值域的 1%，到最大值后从最小值循环。', ...
+            'FontColor', [0.35, 0.35, 0.38]);
+        playbackHint.Layout.Row = 5;
+        playbackHint.Layout.Column = [7, 14];
+        if diff(globalRange) == 0
+            playButton.Enable = 'off';
+        end
+        playbackControls = {playbackText, playButton, intervalText, ...
+            playbackIntervalEdit, playbackHint};
+        playbackTimer = timer('ExecutionMode', 'fixedSpacing', ...
+            'BusyMode', 'drop', 'Period', playbackIntervalEdit.Value, ...
+            'TimerFcn', @(source, event) advanceExactIsoPlayback(fig, source, event));
+    end
+
+    setControlGroupVisible(automaticControls, strcmp(isoSelectionMode, 'automatic'));
+    setControlGroupVisible(exactControls, strcmp(isoSelectionMode, 'single'));
+    setControlGroupVisible(playbackControls, showExactPlaybackInitially);
+    setVolumeAlphaLayout(alphaText, alphaSlider, isoSelectionMode);
 
     if isnumeric(opts.ColorLimits)
         volumeClim = makeSafeLimits(opts.ColorLimits);
@@ -810,219 +975,308 @@ function fig = createVolumeFigure(volumeData, opts, globalRange, existingFig)
         'NumIsosurfaces', opts.NumIsosurfaces, ...
         'IsoRange', opts.IsoRange, ...
         'IsoValues', opts.IsoValues, ...
+        'IsoSelectionMode', isoSelectionMode, ...
+        'ExactIsoValue', exactIsoValue, ...
         'SurfaceAlpha', opts.SurfaceAlpha, ...
         'Axes', ax, ...
         'AxesToolbar', gobjects(0), ...
         'ToolbarButtons', gobjects(0), ...
-        'NavigationToolbar', navigationToolbar, ...
-        'NavigationTools', navigationTools, ...
-        'ActiveNavigationMode', 'none', ...
-        'HomeNavigation', [], ...
         'Colorbar', cb, ...
         'SampleIndices', {sampleIndices}, ...
         'ModeDropDown', modeDropDown, ...
+        'IsoModeDropDown', isoModeDropDown, ...
         'CountSpinner', countSpinner, ...
         'LowerEdit', lowerEdit, ...
         'UpperEdit', upperEdit, ...
+        'ExactValueEdit', exactValueEdit, ...
+        'ExactValueSlider', exactValueSlider, ...
+        'AutomaticControls', {automaticControls}, ...
+        'ExactControls', {exactControls}, ...
+        'PlaybackControls', {playbackControls}, ...
+        'AlphaText', alphaText, ...
         'AlphaSlider', alphaSlider, ...
-        'RedrawButton', redrawButton, ...
+        'PlayButton', playButton, ...
+        'PlaybackIntervalEdit', playbackIntervalEdit, ...
+        'PlaybackTimer', playbackTimer, ...
+        'MainGrid', mainGrid, ...
+        'ControlsGrid', controls, ...
+        'BaseControlPanelHeight', baseControlPanelHeight, ...
+        'LastAlphaRenderClock', tic, ...
         'Patches', gobjects(0));
     fig.UserData = state;
 
     if ~isempty(modeDropDown) && isgraphics(modeDropDown)
         modeDropDown.ValueChangedFcn = @(source, event) onPlotModeChanged(fig, source, event);
     end
-    if ~isempty(redrawButton) && isgraphics(redrawButton)
-        redrawButton.ButtonPushedFcn = @(source, event) redrawVolume(fig, source, event);
+    if ~isempty(isoModeDropDown) && isgraphics(isoModeDropDown)
+        isoModeDropDown.ValueChangedFcn = ...
+            @(source, event) onIsoSelectionModeChanged(fig, source, event);
+    end
+    if ~isempty(countSpinner) && isgraphics(countSpinner)
+        countSpinner.ValueChangedFcn = ...
+            @(source, event) onAutomaticIsoParametersChanged(fig, source, event);
+    end
+    if ~isempty(lowerEdit) && isgraphics(lowerEdit)
+        lowerEdit.ValueChangedFcn = ...
+            @(source, event) onAutomaticIsoParametersChanged(fig, source, event);
+        upperEdit.ValueChangedFcn = ...
+            @(source, event) onAutomaticIsoParametersChanged(fig, source, event);
+    end
+    if ~isempty(exactValueSlider) && isgraphics(exactValueSlider)
+        exactValueSlider.ValueChangingFcn = ...
+            @(source, event) previewExactIsoValue(fig, event.Value);
+        exactValueSlider.ValueChangedFcn = ...
+            @(source, event) commitExactIsoValue(fig, source.Value);
+        exactValueEdit.ValueChangedFcn = ...
+            @(source, event) commitExactIsoValue(fig, source.Value);
     end
     if ~isempty(alphaSlider) && isgraphics(alphaSlider)
-        alphaSlider.ValueChangingFcn = @(source, event) changeSurfaceAlpha(fig, event.Value);
-        alphaSlider.ValueChangedFcn = @(source, event) changeSurfaceAlpha(fig, source.Value);
+        alphaSlider.ValueChangingFcn = ...
+            @(source, event) changeSurfaceAlpha(fig, event.Value, false);
+        alphaSlider.ValueChangedFcn = ...
+            @(source, event) changeSurfaceAlpha(fig, source.Value, true);
+    end
+    if ~isempty(playButton) && isgraphics(playButton)
+        playButton.ButtonPushedFcn = @(source, event) toggleViewerPlayback(fig, source, event);
+        playbackIntervalEdit.ValueChangedFcn = ...
+            @(source, event) updateViewerPlaybackPeriod(fig, source, event);
     end
 
     renderVolume(fig);
 end
 
 
-function redrawVolume(fig, ~, ~)
+function onAutomaticIsoParametersChanged(fig, ~, ~)
     if isvalid(fig)
         renderVolume(fig);
     end
 end
 
 
-function changeSurfaceAlpha(fig, alphaValue)
+function changeSurfaceAlpha(fig, alphaValue, synchronizeSlider)
     if ~isvalid(fig)
         return
     end
+    if nargin < 3
+        synchronizeSlider = true;
+    end
     state = fig.UserData;
+    if ~synchronizeSlider && toc(state.LastAlphaRenderClock) < 0.03
+        state.SurfaceAlpha = alphaValue;
+        fig.UserData = state;
+        return
+    end
+    state.LastAlphaRenderClock = tic;
     validPatches = state.Patches(isgraphics(state.Patches));
     if ~isempty(validPatches)
         set(validPatches, 'FaceAlpha', alphaValue);
     end
     state.SurfaceAlpha = alphaValue;
-    if ~isempty(state.AlphaSlider) && isgraphics(state.AlphaSlider)
+    if synchronizeSlider && ~isempty(state.AlphaSlider) && isgraphics(state.AlphaSlider)
         state.AlphaSlider.Value = alphaValue;
     end
     fig.UserData = state;
-    drawnow limitrate
+    drawnow limitrate nocallbacks
 end
 
 
-function [toolbar, tools] = createVolumeNavigationToolbar(fig)
-    toolbar = uitoolbar(fig);
-
-    tools = struct();
-    tools.Rotate = uitoggletool(toolbar, 'Tooltip', '三维旋转', ...
-        'Separator', 'on', ...
-        'ClickedCallback', @(source, event) changeVolumeNavigationMode( ...
-            fig, source, 'rotate', event));
-    tools.Pan = uitoggletool(toolbar, 'Tooltip', '平移', ...
-        'ClickedCallback', @(source, event) changeVolumeNavigationMode( ...
-            fig, source, 'pan', event));
-    tools.ZoomIn = uipushtool(toolbar, 'Tooltip', '放大', ...
-        'ClickedCallback', @(source, event) zoomVolumeView( ...
-            fig, 1.20, source, event));
-    tools.ZoomOut = uipushtool(toolbar, 'Tooltip', '缩小', ...
-        'ClickedCallback', @(source, event) zoomVolumeView( ...
-            fig, 1 / 1.20, source, event));
-    tools.Restore = uipushtool(toolbar, 'Tooltip', '恢复初始视角', ...
-        'ClickedCallback', @(source, event) restoreVolumeView(fig, source, event));
-
-    setNavigationToolIcon(tools.Rotate, 'rotate3dUI.svg', 'rotate');
-    setNavigationToolIcon(tools.Pan, 'panUI.svg', 'pan');
-    setNavigationToolIcon(tools.ZoomIn, 'zoomInUI.svg', 'zoomin');
-    setNavigationToolIcon(tools.ZoomOut, 'zoomOutUI.svg', 'zoomout');
-    setNavigationToolIcon(tools.Restore, 'restoreViewUI.svg', 'restore');
-end
-
-
-function setNavigationToolIcon(tool, fileName, fallbackKind)
-    iconPath = fullfile(matlabroot, 'ui', 'icons', '24x24', fileName);
-    if isfile(iconPath)
-        tool.Icon = iconPath;
-    else
-        tool.CData = makeFallbackNavigationIcon(fallbackKind);
-    end
-end
-
-
-function icon = makeFallbackNavigationIcon(kind)
-    icon = repmat(reshape([0.94, 0.94, 0.94], 1, 1, 3), 16, 16);
-    inkColor = [0.16, 0.31, 0.48];
-    [column, row] = meshgrid(1:16, 1:16);
-    ink = false(16, 16);
-
-    switch kind
-        case 'rotate'
-            radius = hypot(column - 8.5, row - 8.5);
-            ink = abs(radius - 5) < 0.8;
-            ink(2:5, 10:13) = ink(2:5, 10:13) | tril(true(4));
-        case 'pan'
-            ink(3:14, 8:9) = true;
-            ink(8:9, 3:14) = true;
-            ink(2:4, 7:10) = true;
-            ink(13:15, 7:10) = true;
-            ink(7:10, 2:4) = true;
-            ink(7:10, 13:15) = true;
-        case {'zoomin', 'zoomout'}
-            radius = hypot(column - 6.5, row - 6.5);
-            ink = abs(radius - 4.2) < 0.8;
-            ink(10:14, 10:14) = ink(10:14, 10:14) | (eye(5) > 0);
-            ink(6:7, 4:9) = true;
-            if strcmp(kind, 'zoomin')
-                ink(4:9, 6:7) = true;
-            end
-        case 'restore'
-            ink(4:13, 4) = true;
-            ink(4:13, 13) = true;
-            ink(4, 4:13) = true;
-            ink(13, 4:13) = true;
-            ink(2:6, 2:6) = ink(2:6, 2:6) | triu(true(5));
-    end
-
-    for channel = 1:3
-        plane = icon(:, :, channel);
-        plane(ink) = inkColor(channel);
-        icon(:, :, channel) = plane;
-    end
-end
-
-
-function changeVolumeNavigationMode(fig, source, mode, ~)
+function onIsoSelectionModeChanged(fig, source, ~)
     if ~isvalid(fig)
         return
     end
+    pauseViewerPlayback(fig);
     state = fig.UserData;
-    if ~isstruct(state) || ~isfield(state, 'NavigationTools')
+    state.IsoSelectionMode = char(source.Value);
+    setControlGroupVisible(state.AutomaticControls, ...
+        strcmp(state.IsoSelectionMode, 'automatic'));
+    setControlGroupVisible(state.ExactControls, ...
+        strcmp(state.IsoSelectionMode, 'single'));
+    showPlayback = strcmp(state.IsoSelectionMode, 'single');
+    setControlGroupVisible(state.PlaybackControls, showPlayback);
+    rowHeights = state.ControlsGrid.RowHeight;
+    rowHeights{5} = 36 * double(showPlayback);
+    state.ControlsGrid.RowHeight = rowHeights;
+    mainRowHeights = state.MainGrid.RowHeight;
+    mainRowHeights{2} = state.BaseControlPanelHeight + 36 * double(showPlayback);
+    state.MainGrid.RowHeight = mainRowHeights;
+    setVolumeAlphaLayout(state.AlphaText, state.AlphaSlider, ...
+        state.IsoSelectionMode);
+    fig.UserData = state;
+    renderVolume(fig);
+end
+
+
+function previewExactIsoValue(fig, value)
+    if ~isvalid(fig)
         return
     end
-
-    selected = strcmp(source.State, 'on');
-    toggleNames = {'Rotate', 'Pan'};
-    for index = 1:numel(toggleNames)
-        tool = state.NavigationTools.(toggleNames{index});
-        if isvalid(tool)
-            tool.State = 'off';
-        end
-    end
-
-    if selected
-        source.State = 'on';
-        state.ActiveNavigationMode = mode;
-    else
-        state.ActiveNavigationMode = 'none';
+    pauseViewerPlayback(fig);
+    state = fig.UserData;
+    state.ExactIsoValue = double(value);
+    if ~isempty(state.ExactValueEdit) && isgraphics(state.ExactValueEdit)
+        state.ExactValueEdit.Value = state.ExactIsoValue;
     end
     fig.UserData = state;
-    setAxesNavigationMode(state.Axes, state.ActiveNavigationMode);
 end
 
 
-function setAxesNavigationMode(ax, mode)
-    if isempty(ax) || ~isvalid(ax)
+function commitExactIsoValue(fig, value)
+    if ~isvalid(fig)
         return
     end
-
-    switch mode
-        case 'rotate'
-            ax.Interactions = rotateInteraction;
-        case 'pan'
-            ax.Interactions = panInteraction;
-        otherwise
-            enableDefaultInteractivity(ax);
+    pauseViewerPlayback(fig);
+    state = fig.UserData;
+    state.ExactIsoValue = double(value);
+    if ~isempty(state.ExactValueEdit) && isgraphics(state.ExactValueEdit)
+        state.ExactValueEdit.Value = state.ExactIsoValue;
+        state.ExactValueSlider.Value = state.ExactIsoValue;
     end
+    fig.UserData = state;
+    renderVolume(fig);
 end
 
 
-function zoomVolumeView(fig, factor, ~, ~)
+function toggleViewerPlayback(fig, source, ~)
     if ~isvalid(fig)
         return
     end
     state = fig.UserData;
-    if isstruct(state) && isfield(state, 'Axes') && isvalid(state.Axes)
-        camzoom(state.Axes, factor);
-        drawnow limitrate
+    playbackTimer = state.PlaybackTimer;
+    if isempty(playbackTimer) || ~isvalid(playbackTimer)
+        return
+    end
+    if strcmp(playbackTimer.Running, 'on')
+        stop(playbackTimer);
+        source.Text = '播放';
+    else
+        playbackTimer.Period = state.PlaybackIntervalEdit.Value;
+        source.Text = '暂停';
+        start(playbackTimer);
     end
 end
 
 
-function restoreVolumeView(fig, ~, ~)
+function updateViewerPlaybackPeriod(fig, source, ~)
     if ~isvalid(fig)
         return
     end
     state = fig.UserData;
-    if ~isstruct(state) || ~isfield(state, 'HomeNavigation') || ...
-            isempty(state.HomeNavigation)
+    playbackTimer = state.PlaybackTimer;
+    if isempty(playbackTimer) || ~isvalid(playbackTimer)
         return
     end
-
-    restoreAxesNavigation(state.Axes, state.HomeNavigation);
-    delete(findall(state.Axes, 'Type', 'light'));
-    if any(isgraphics(state.Patches))
-        camlight(state.Axes, 'headlight');
-        lighting(state.Axes, 'gouraud');
+    wasRunning = strcmp(playbackTimer.Running, 'on');
+    if wasRunning
+        stop(playbackTimer);
     end
-    drawnow limitrate
+    playbackTimer.Period = source.Value;
+    if wasRunning
+        start(playbackTimer);
+    end
+end
+
+
+function advanceSlicePlayback(fig, ~, ~)
+    if ~isvalid(fig)
+        return
+    end
+    state = fig.UserData;
+    nextIndex = state.Index + 1;
+    if nextIndex > state.DataSize(state.Dimension)
+        nextIndex = 1;
+    end
+    renderSlice(fig, nextIndex, true);
+end
+
+
+function advanceExactIsoPlayback(fig, ~, ~)
+    if ~isvalid(fig)
+        return
+    end
+    state = fig.UserData;
+    valueSpan = diff(state.GlobalRange);
+    if valueSpan <= 0
+        pauseViewerPlayback(fig);
+        return
+    end
+    nextValue = state.ExactIsoValue + valueSpan / 100;
+    if nextValue > state.GlobalRange(2)
+        nextValue = state.GlobalRange(1);
+    end
+    state.ExactIsoValue = nextValue;
+    state.ExactValueEdit.Value = nextValue;
+    state.ExactValueSlider.Value = nextValue;
+    fig.UserData = state;
+    renderVolume(fig);
+end
+
+
+function pauseViewerPlayback(fig)
+    if isempty(fig) || ~isvalid(fig) || isempty(fig.UserData) || ...
+            ~isfield(fig.UserData, 'PlaybackTimer')
+        return
+    end
+    state = fig.UserData;
+    playbackTimer = state.PlaybackTimer;
+    if ~isempty(playbackTimer) && isvalid(playbackTimer) && ...
+            strcmp(playbackTimer.Running, 'on')
+        stop(playbackTimer);
+    end
+    if isfield(state, 'PlayButton') && ~isempty(state.PlayButton) && ...
+            isgraphics(state.PlayButton)
+        if ~strcmp(state.PlayButton.Text, '播放')
+            state.PlayButton.Text = '播放';
+        end
+    end
+end
+
+
+function stopViewerPlayback(fig, deleteTimer)
+    if isempty(fig) || ~isvalid(fig) || isempty(fig.UserData) || ...
+            ~isfield(fig.UserData, 'PlaybackTimer')
+        return
+    end
+    pauseViewerPlayback(fig);
+    playbackTimer = fig.UserData.PlaybackTimer;
+    if deleteTimer && ~isempty(playbackTimer) && isvalid(playbackTimer)
+        delete(playbackTimer);
+    end
+end
+
+
+function closeViewerFigure(fig, ~)
+    if ~isvalid(fig)
+        return
+    end
+    stopViewerPlayback(fig, true);
+    delete(fig);
+end
+
+
+function setControlGroupVisible(controls, isVisible)
+    visibility = 'off';
+    if isVisible
+        visibility = 'on';
+    end
+    for index = 1:numel(controls)
+        if isgraphics(controls{index})
+            controls{index}.Visible = visibility;
+        end
+    end
+end
+
+
+function setVolumeAlphaLayout(alphaText, alphaSlider, isoSelectionMode)
+    if isempty(alphaSlider) || ~isgraphics(alphaSlider)
+        return
+    end
+    if strcmp(isoSelectionMode, 'single')
+        alphaText.Layout.Column = 11;
+        alphaSlider.Layout.Column = [12, 14];
+    else
+        alphaText.Layout.Column = 7;
+        alphaSlider.Layout.Column = [8, 14];
+    end
 end
 
 
@@ -1047,6 +1301,11 @@ function renderVolume(fig)
     if ~isempty(state.AlphaSlider) && isgraphics(state.AlphaSlider)
         surfaceAlpha = state.AlphaSlider.Value;
     end
+    exactIsoValue = state.ExactIsoValue;
+    if strcmp(state.IsoSelectionMode, 'single') && ...
+            ~isempty(state.ExactValueEdit) && isgraphics(state.ExactValueEdit)
+        exactIsoValue = state.ExactValueEdit.Value;
+    end
 
     if state.HasRendered
         navigationState = captureAxesNavigation(state.Axes);
@@ -1069,7 +1328,9 @@ function renderVolume(fig)
         levels = state.GlobalRange(1);
         patches = gobjects(0);
     else
-        if ~isempty(state.IsoValues)
+        if strcmp(state.IsoSelectionMode, 'single')
+            levels = exactIsoValue;
+        elseif ~isempty(state.IsoValues)
             levels = state.IsoValues;
         else
             levelBounds = state.GlobalRange(1) + valueSpan * isoRange;
@@ -1136,24 +1397,25 @@ function renderVolume(fig)
     xlabel(state.Axes, 'Dim 1 index');
     ylabel(state.Axes, 'Dim 2 index');
     zlabel(state.Axes, 'Dim 3 index');
-    title(state.Axes, sprintf('%s  |  %d isosurfaces: %s ... %s', ...
-        state.Variable, numel(patches), formatNumber(levels(1)), ...
-        formatNumber(levels(end))), 'Interpreter', 'none');
+    if isscalar(levels)
+        titleText = sprintf('%s  |  isosurface = %s', ...
+            state.Variable, formatNumber(levels));
+    else
+        titleText = sprintf('%s  |  %d isosurfaces: %s ... %s', ...
+            state.Variable, numel(patches), formatNumber(levels(1)), ...
+            formatNumber(levels(end)));
+    end
+    title(state.Axes, titleText, 'Interpreter', 'none');
 
     state.NumIsosurfaces = count;
     state.IsoRange = isoRange;
+    state.ExactIsoValue = exactIsoValue;
     state.SurfaceAlpha = surfaceAlpha;
     state.Patches = patches;
     state.HasRendered = true;
     state = ensureVolumeInteractivity(state);
     fig.UserData = state;
     drawnow
-    if isempty(state.HomeNavigation)
-        % Capture the restore target only after the graphics flush; an
-        % invisible UIAxes can otherwise still report its default camera.
-        state.HomeNavigation = captureAxesNavigation(state.Axes);
-        fig.UserData = state;
-    end
 end
 
 
@@ -1164,11 +1426,7 @@ function state = ensureVolumeInteractivity(state)
     % objects. Because this axes only becomes 3-D after its first render,
     % MATLAB can fail to materialize the 3-D toolbar. Create the tools
     % explicitly after rendering, when the axes is already in a 3-D view.
-    if strcmp(state.ActiveNavigationMode, 'none')
-        enableDefaultInteractivity(ax);
-    else
-        setAxesNavigationMode(ax, state.ActiveNavigationMode);
-    end
+    enableDefaultInteractivity(ax);
     if isempty(state.AxesToolbar) || ~isvalid(state.AxesToolbar)
         [state.AxesToolbar, state.ToolbarButtons] = axtoolbar(ax, ...
             {'rotate', 'pan', 'zoomin', 'zoomout', 'restoreview'});
@@ -1184,9 +1442,13 @@ function navigationState = captureAxesNavigation(ax)
         'YLim', ax.YLim, ...
         'ZLim', ax.ZLim, ...
         'CameraPosition', ax.CameraPosition, ...
+        'CameraPositionMode', ax.CameraPositionMode, ...
         'CameraTarget', ax.CameraTarget, ...
+        'CameraTargetMode', ax.CameraTargetMode, ...
         'CameraUpVector', ax.CameraUpVector, ...
+        'CameraUpVectorMode', ax.CameraUpVectorMode, ...
         'CameraViewAngle', ax.CameraViewAngle, ...
+        'CameraViewAngleMode', ax.CameraViewAngleMode, ...
         'Projection', ax.Projection);
 end
 
@@ -1200,11 +1462,28 @@ function restoreAxesNavigation(ax, navigationState)
     ax.CameraUpVector = navigationState.CameraUpVector;
     ax.CameraViewAngle = navigationState.CameraViewAngle;
     ax.Projection = navigationState.Projection;
+
+    % Assigning any camera value forces its corresponding mode to manual.
+    % Restore the modes last so a redraw does not silently change how pan
+    % and zoom operate. Manual modes still retain the exact user camera;
+    % automatic modes remain managed by MATLAB as they were before redraw.
+    ax.CameraPositionMode = navigationState.CameraPositionMode;
+    ax.CameraTargetMode = navigationState.CameraTargetMode;
+    ax.CameraUpVectorMode = navigationState.CameraUpVectorMode;
+    ax.CameraViewAngleMode = navigationState.CameraViewAngleMode;
 end
 
 
 function configureSliderTicks(slider, axisLength)
     slider.MajorTicks = unique(round(linspace(1, axisLength, min(5, axisLength))));
+    slider.MinorTicks = [];
+end
+
+
+function configureValueSliderTicks(slider, valueRange)
+    ticks = unique(linspace(valueRange(1), valueRange(2), 5));
+    slider.MajorTicks = ticks;
+    slider.MajorTickLabels = arrayfun(@formatNumber, ticks, 'UniformOutput', false);
     slider.MinorTicks = [];
 end
 
