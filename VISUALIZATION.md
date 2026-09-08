@@ -5,6 +5,9 @@
 `data_uniGrid_zFlowDirct.mat` 的固定字段结构，会递归发现顶层或嵌套标量 structure 中
 符合规则的数组。三维变量未指定绘图模式时默认使用多等值面，二维变量自动使用 Slice。
 
+实现已拆分到 `+matfield` 包；脚本职责、运行流程和模块依赖见
+[`ARCHITECTURE.md`](ARCHITECTURE.md)。
+
 ## 目标变量规则
 
 脚本只把以下数据视为可绘制目标：
