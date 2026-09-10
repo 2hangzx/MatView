@@ -1,5 +1,5 @@
 function fig = visualizeMatField(varargin)
-%VISUALIZEMATFIELD Interactively inspect a 2-D or 3-D numeric MAT variable.
+%VISUALIZEMATFIELD Interactively inspect a 2-D or 3-D numeric field.
 %
 % Basic usage
 %   visualizeMatField()
@@ -9,6 +9,11 @@ function fig = visualizeMatField(varargin)
 %       'PlotType', 'slice', 'Dimension', 3, 'Index', 80)
 %   visualizeMatField('Data/data_uniGrid_zFlowDirct.mat', ...
 %       'rho.gradNorm_XYZ', 'PlotType', 'volume')
+%   visualizeMatField(workspaceArray)
+%   visualizeMatField(workspaceStruct, 'flow.temperature')
+%   visualizeMatField('SourceType', 'workspace')
+%   visualizeMatField('SourceType', 'workspace', ...
+%       'WorkspaceVariable', 'flow.temperature')
 %
 % Plot types
 %   slice  - A single array plane. 'figure' is accepted as an alias. The
@@ -18,11 +23,13 @@ function fig = visualizeMatField(varargin)
 %   If PlotType is omitted, it can be changed from inside the viewer.
 %
 % Positional input
-%   matFile           Optional first positional argument: MAT-file path. If
-%                     omitted, enter a path or browse for a file in the UI.
+%   source            Optional first positional input: a MAT-file path, a
+%                     numeric array, or a scalar structure. Local/caller
+%                     variables are supported by passing their values here.
 %   variablePath      Optional second positional argument: dot-separated
 %                     path to a real numeric 2-D/3-D array. Top-level and
-%                     arbitrarily nested scalar-struct fields are accepted.
+%                     nested scalar-struct fields are accepted. A direct
+%                     numeric source does not need this argument.
 %                     If omitted, the figure first asks the user to select one.
 %
 % Defaults
@@ -33,6 +40,10 @@ function fig = visualizeMatField(varargin)
 %   isosurfaces       5, spanning 15%%--85%% of the global value range
 %
 % Optional inputs are Name-Value parameters only
+%   SourceType        'matfile' (default UI source), 'workspace', or
+%                     'memory'. Memory is normally inferred from direct data.
+%   WorkspaceVariable  Base Workspace variable/field path. Valid only when
+%                     SourceType is explicitly 'workspace'.
 %   PlotType          'volume' (default), 'slice'/'figure', or '3d'
 %                     /'isosurface'
 %   Dimension         Numeric scalar 1, 2, or 3
@@ -54,34 +65,56 @@ function fig = visualizeMatField(varargin)
 %   tools in the UIAxes hover toolbar. Default 3-D mouse interactions are
 %   also enabled.
 
-    opts = matfield.Input.parse(varargin);
-    if opts.Specified.MatFile
-        opts.MatFile = matfield.Data.resolveMatFile(opts.MatFile);
+    sourceInputName = '';
+    if nargin >= 1
+        sourceInputName = inputname(1);
+    end
+    opts = matfield.Input.parse(varargin, sourceInputName);
+    opts.Source = matfield.Data.resolve(opts.Source);
+    if strcmp(opts.Source.Type, 'matfile')
+        opts.MatFile = opts.Source.Location;
+    end
+    if strcmp(opts.Source.Type, 'workspace')
+        workspaceInfo = matfield.Data.listTargets(opts.Source, opts);
+        opts.AvailableVariables = {workspaceInfo.Path};
+        opts.AvailableVariableInfo = workspaceInfo;
     end
 
     if ~opts.Specified.Variable
-        variableInfo = matfield.Data.emptyVariableInfo();
-        if opts.Specified.MatFile
-            variableInfo = matfield.Data.listSelectableVariables(opts.MatFile, opts);
+        if isfield(opts, 'AvailableVariableInfo')
+            variableInfo = opts.AvailableVariableInfo;
+        else
+            variableInfo = matfield.Data.emptyVariableInfo();
+        end
+        if matfield.Data.isReady(opts.Source) && ...
+                ~isfield(opts, 'AvailableVariableInfo')
+            variableInfo = matfield.Data.listTargets(opts.Source, opts);
         end
         opts.AvailableVariables = {variableInfo.Path};
         opts.AvailableVariableInfo = variableInfo;
-        if opts.Specified.MatFile && isempty(opts.AvailableVariables)
+        if isempty(opts.AvailableVariables) && ...
+                any(strcmp(opts.Source.Type, {'matfile', 'memory'})) && ...
+                matfield.Data.isReady(opts.Source)
             error('visualizeMatField:NoSelectableVariables', ...
-                ['The MAT file contains no compatible real numeric 2-D/3-D ', ...
-                 'arrays for the requested plotting options.']);
+                ['The selected data source contains no compatible real ', ...
+                 'numeric 2-D/3-D arrays for the requested plotting options.']);
         end
         fig = matfield.SelectionView.createVariableSelectionFigure(opts);
         return
     end
 
-    [fieldData, resolvedFile, fieldDimension] = ...
-        matfield.Data.loadTargetArray(opts.MatFile, opts.Variable);
+    [fieldData, opts.Source, fieldDimension, canonicalPath] = ...
+        matfield.Data.loadTarget(opts.Source, opts.Variable);
+    opts.Variable = canonicalPath;
     opts.FieldDimension = fieldDimension;
     opts.PlotType = matfield.Data.resolvePlotTypeForField(opts, fieldDimension);
     globalRange = matfield.Data.validateLoadedArray(fieldData, opts);
 
-    opts.MatFile = resolvedFile;
+    if strcmp(opts.Source.Type, 'matfile')
+        opts.MatFile = opts.Source.Location;
+    else
+        opts.MatFile = '';
+    end
     if fieldDimension == 3
         opts.Dimension = matfield.Input.normalizeDimension(opts.Dimension);
         matfield.Input.validateInitialIndex(opts.Index, opts.Dimension, size(fieldData));

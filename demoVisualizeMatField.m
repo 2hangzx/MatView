@@ -4,14 +4,31 @@
 % and controls. Resizing the window reflows controls without reloading data,
 % recreating the axes, or resetting the current 3-D view.
 
-%% 0. Select both the MAT file and target variable inside the viewer
-% With no positional inputs, the image starts empty. Enter an absolute or
-% relative MAT-file path, or use the Browse button. The variable dropdown
-% becomes available only after the file has been validated.
+%% 0. Select a source and target variable inside the viewer
+% With no positional inputs, the image starts empty. Keep the default MAT
+% source and enter/browse a path, or switch the source to MATLAB Workspace.
 % visualizeMatField();
 %
 % Name-Value options may still be fixed before choosing the file:
 % visualizeMatField('PlotType', 'slice', 'Dimension', 2);
+
+%% 0a. Direct data from a script or function-local workspace
+% Passing the value is the reliable way to visualize caller-local data.
+% The viewer keeps the input snapshot and never tries to revisit the caller
+% from a later UI callback.
+% localVolume = rand(40, 50, 60, 'single');
+% visualizeMatField(localVolume);
+%
+% localResult = struct('flow', struct('temperature', localVolume));
+% visualizeMatField(localResult);                    % choose in the UI
+% visualizeMatField(localResult, 'flow.temperature'); % choose explicitly
+
+%% 0b. Browse MATLAB Base Workspace by name
+% The Refresh button explicitly rescans the Base Workspace. No background
+% polling is performed.
+% visualizeMatField('SourceType', 'workspace');
+% visualizeMatField('SourceType', 'workspace', ...
+%     'WorkspaceVariable', 'localResult.flow.temperature');
 
 %% 1. MAT file and variable specified, all other options use defaults
 % Volume mode. Use the in-window dropdown to switch modes.

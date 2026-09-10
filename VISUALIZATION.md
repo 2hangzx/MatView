@@ -1,9 +1,9 @@
-# 通用 MAT 二维/三维场可视化
+# 通用二维/三维场可视化
 
-主入口是 `visualizeMatField.m`。MAT 文件和目标变量路径都可以省略。未指定 MAT 文件时，
-窗口先提供路径输入框和“浏览…”按钮；文件有效后变量下拉框才会启用。脚本不依赖
-`data_uniGrid_zFlowDirct.mat` 的固定字段结构，会递归发现顶层或嵌套标量 structure 中
-符合规则的数组。三维变量未指定绘图模式时默认使用多等值面，二维变量自动使用 Slice。
+主入口是 `visualizeMatField.m`。数据可以来自 MAT 文件、MATLAB Base Workspace，或调用
+时直接传入的数组/标量结构体。无参数调用时可以在窗口内选择 MAT 文件或工作区；脚本会
+递归发现顶层或嵌套标量 structure 中符合规则的数组。三维变量未指定绘图模式时默认使用
+多等值面，二维变量自动使用 Slice。
 
 实现已拆分到 `+matfield` 包；脚本职责、运行流程和模块依赖见
 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
@@ -29,6 +29,19 @@ matFile = fullfile(pwd, 'Data', 'data_uniGrid_zFlowDirct.mat');
 
 % 不传参数：先在窗口中选择 MAT 文件，再选择目标变量
 visualizeMatField()
+
+% 直接显示当前函数或脚本工作区中的数组
+visualizeMatField(myVolume)
+
+% 直接传入复杂结构体，再在窗口中选择合法嵌套字段
+visualizeMatField(myResult)
+
+% 浏览 MATLAB Base Workspace
+visualizeMatField('SourceType', 'workspace')
+
+% 精确指定 Base Workspace 中的目标
+visualizeMatField('SourceType', 'workspace', ...
+    'WorkspaceVariable', 'myResult.flow.temperature')
 
 % 不指定 MAT 文件，但预先固定绘图模式
 visualizeMatField('PlotType', 'slice')
@@ -73,14 +86,20 @@ visualizeMatField(Name, Value, ...)
 visualizeMatField(matFile)
 visualizeMatField(matFile, variablePath)
 visualizeMatField(matFile, [variablePath], Name, Value, ...)
+visualizeMatField(numericArray, Name, Value, ...)
+visualizeMatField(scalarStruct, [variablePath], Name, Value, ...)
+visualizeMatField('SourceType', 'workspace', Name, Value, ...)
 ```
 
-- `matFile` 是可选的第一个位置参数，只接受绝对路径或相对于 MATLAB 当前工作目录的路径。
-- `variablePath` 是可选的第二个位置参数，可以是顶层名称或嵌套点分路径；它只能出现在
-  已经提供 `matFile` 的情况下。
-- `matFile` 和 `variablePath` 都不提供时，Name-Value 可以从第一个参数开始。
-- 已提供 `matFile`、但省略 `variablePath` 时，Name-Value 可以紧跟在 `matFile` 后面。
-- `matFile` 和 `variablePath` 只使用位置传参，不提供同名 Name-Value 写法。
+- 第一个位置参数为文本时表示 MAT 文件路径；为数值数组或标量 structure 时表示调用时
+  直接传入的内存数据。
+- 第二个位置参数是目标字段路径，只能跟在 MAT 文件或直接传入的标量 structure 后面；
+  直接数值数组自身就是目标，不接受第二个位置参数。
+- `SourceType='workspace'` 用于浏览 Base Workspace；可用 `WorkspaceVariable` 显式指定
+  顶层变量或嵌套字段。
+- `SourceType='memory'` 通常由直接传值自动推断，不能在没有直接值时单独使用。
+- 未提供位置参数时，Name-Value 可以从第一个参数开始。
+- MAT 路径和直接内存数据只使用位置传参，不提供同名 Name-Value 写法。
 - Name-Value 的排列顺序任意。
 - 同一个参数不同时支持位置与 Name-Value 两套写法，避免无法判断用户是否显式指定。
 - 参数名称大小写不敏感，但必须写完整，不接受 `PlotT` 等缩写。
@@ -123,9 +142,23 @@ visualizeMatField('PlotType', 'slice', 'Dimension', 2)
   全部数组；对早期 MAT 格式，顶层数值数组使用 `whos` 元数据判断，只有标量 structure
   会按顶层变量逐个加载并递归检查。
 
+## 工作区与直接内存数据
+
+- 无参数调用时显示“数据源类型”下拉框，默认仍为 MAT 文件；切换为“MATLAB 工作区”后
+  立即扫描 Base Workspace，并显示“刷新”按钮。
+- 工作区变量不会后台轮询。选择变量时读取一次快照；点击“刷新”后重新扫描并重新读取
+  当前目标。变量被删除或变为不兼容类型时，图像清空并回到目标选择状态。
+- 工作区中的三维变量刷新后变为二维时，会自动降级到 Slice。
+- 函数局部变量通过 `visualizeMatField(localValue)` 直接传入。figure 后续回调不使用
+  `evalin('caller', ...)`，因此不依赖最初函数的 caller workspace 是否仍然存在。
+- 直接传入数值数组时立即绘图；直接传入标量 structure 且未指定字段时，目标下拉框列出
+  所有合法嵌套二维/三维数组。
+- 直接传值采用 MATLAB copy-on-write 语义。调用后原变量的修改不会作为自动刷新信号；
+  查看器继续显示调用时持有的数据快照。
+
 ## 窗口分区与响应式布局
 
-查看器统一划分为“MAT 文件与目标变量区、绘图区、控制台区”三个区域。绘图区始终占用
+查看器统一划分为“数据源与目标变量区、绘图区、控制台区”三个区域。绘图区始终占用
 除上下两区以外的弹性空间；窗口宽度变化时，另外两个区域会在宽、中、窄三种布局之间
 自动重排，而不是继续压缩固定列直至控件被边框裁切。
 
@@ -216,15 +249,16 @@ Volume 绘图区会为标题、三维坐标框和刻度预留边距，初始视�
 
 参数严格按以下层级处理：
 
-1. `matFile` 决定数据来源；省略时必须先在窗口中选择文件。
-2. `variablePath` 依赖 `matFile`；省略时必须在文件验证成功后使用变量下拉框选择。
+1. 数据源决定目标来自 MAT 文件、Base Workspace 或直接内存值；未指定时在窗口中选择。
+2. 目标变量依赖有效数据源；直接数值数组自身就是目标，MAT、Workspace 和内存结构体
+   可以通过字段路径或变量下拉框进一步选择。
 3. `PlotType` 依赖目标变量的维数：二维变量只能 Slice，三维变量可以 Slice 或 Volume。
 4. `Dimension` 依赖显式的 Slice 模式；`Index` 进一步依赖显式的 `Dimension`。
 5. `NumIsosurfaces`、`IsoRange`、`IsoValues`、`SurfaceAlpha` 和 `MaxRenderSize` 依赖显式的
    Volume 模式；`IsoValues` 与自动多层的数量/范围参数互斥。
 
-文件或变量可以留给 UI 后续选择，但命令行中的下级参数仍必须满足上述依赖；缺少必需的
-上级模式参数会立即给出说明性错误。
+数据源或目标可以留给 UI 后续选择，但命令行中的下级参数仍必须满足上述依赖；缺少必需
+的上级模式参数会立即给出说明性错误。
 
 其他方案的适用范围：
 

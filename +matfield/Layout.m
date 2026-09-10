@@ -102,42 +102,48 @@ classdef Layout
             if strcmp(profile, 'wide')
                 matfield.Layout.prepareGridColumns(grid, 4);
                 grid.ColumnWidth = {82, '2x', 86, '1x'};
-                if layout.ShowFileControl
-                    grid.RowHeight = {32, 32};
-                    matfield.Layout.setGridItemLayout(layout.FileLabel, 1, 1);
-                    matfield.Layout.setGridItemLayout(layout.FilePathEdit, 1, 2);
-                    matfield.Layout.setGridItemLayout(layout.BrowseButton, 1, 3);
-                    matfield.Layout.setGridItemLayout(layout.FileHint, 1, 4);
-                    variableRow = 2;
-                else
-                    grid.RowHeight = {32};
-                    variableRow = 1;
+                grid.RowHeight = repmat({32}, 1, numel(layout.Groups));
+                for groupIndex = 1:numel(layout.Groups)
+                    group = layout.Groups{groupIndex};
+                    matfield.Layout.setGridItemLayout( ...
+                        group.Label, groupIndex, 1);
+                    if matfield.Graphics.hasGraphics(group.Action)
+                        primaryColumn = 2;
+                        matfield.Layout.setGridItemLayout( ...
+                            group.Action, groupIndex, 3);
+                    else
+                        primaryColumn = [2, 3];
+                    end
+                    matfield.Layout.setGridItemLayout( ...
+                        group.Primary, groupIndex, primaryColumn);
+                    matfield.Layout.setGridItemLayout( ...
+                        group.Hint, groupIndex, 4);
+                    matfield.Layout.setLabelWordWrap(group.Hint, false);
                 end
-                matfield.Layout.setGridItemLayout(layout.VariableLabel, variableRow, 1);
-                matfield.Layout.setGridItemLayout(layout.VariableDropDown, variableRow, [2, 3]);
-                matfield.Layout.setGridItemLayout(layout.VariableHint, variableRow, 4);
             else
                 matfield.Layout.prepareGridColumns(grid, 3);
                 grid.ColumnWidth = {82, '1x', 86};
-                if layout.ShowFileControl
-                    grid.RowHeight = {32, 26, 32, 26};
-                    matfield.Layout.setGridItemLayout(layout.FileLabel, 1, 1);
-                    matfield.Layout.setGridItemLayout(layout.FilePathEdit, 1, 2);
-                    matfield.Layout.setGridItemLayout(layout.BrowseButton, 1, 3);
-                    matfield.Layout.setGridItemLayout(layout.FileHint, 2, [2, 3]);
-                    variableRow = 3;
-                    variableHintRow = 4;
-                else
-                    grid.RowHeight = {32, 26};
-                    variableRow = 1;
-                    variableHintRow = 2;
+                grid.RowHeight = repmat({32, 26}, 1, numel(layout.Groups));
+                for groupIndex = 1:numel(layout.Groups)
+                    group = layout.Groups{groupIndex};
+                    primaryRow = 2 * groupIndex - 1;
+                    hintRow = primaryRow + 1;
+                    matfield.Layout.setGridItemLayout( ...
+                        group.Label, primaryRow, 1);
+                    if matfield.Graphics.hasGraphics(group.Action)
+                        primaryColumn = 2;
+                        matfield.Layout.setGridItemLayout( ...
+                            group.Action, primaryRow, 3);
+                    else
+                        primaryColumn = [2, 3];
+                    end
+                    matfield.Layout.setGridItemLayout( ...
+                        group.Primary, primaryRow, primaryColumn);
+                    matfield.Layout.setGridItemLayout( ...
+                        group.Hint, hintRow, [2, 3]);
+                    matfield.Layout.setLabelWordWrap(group.Hint, true);
                 end
-                matfield.Layout.setGridItemLayout(layout.VariableLabel, variableRow, 1);
-                matfield.Layout.setGridItemLayout(layout.VariableDropDown, variableRow, [2, 3]);
-                matfield.Layout.setGridItemLayout(layout.VariableHint, variableHintRow, [2, 3]);
             end
-            matfield.Layout.setLabelWordWrap(layout.FileHint, true);
-            matfield.Layout.setLabelWordWrap(layout.VariableHint, true);
             height = sum(cell2mat(grid.RowHeight)) + grid.Padding(2) + ...
                 grid.Padding(4) + grid.RowSpacing * (numel(grid.RowHeight) - 1);
         end

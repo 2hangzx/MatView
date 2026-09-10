@@ -17,6 +17,8 @@ function setupOnce(testCase)
 
     testCase.TestData.ProjectRoot = projectRoot;
     testCase.TestData.MatFile = matFile;
+    suffix = erase(char(java.util.UUID.randomUUID), '-');
+    testCase.TestData.WorkspaceName = ['vmfTestField', suffix(1:10)];
 end
 
 
@@ -24,6 +26,7 @@ function teardownOnce(testCase)
     if isfile(testCase.TestData.MatFile)
         delete(testCase.TestData.MatFile);
     end
+    clearBaseVariable(testCase.TestData.WorkspaceName);
 end
 
 
@@ -31,6 +34,18 @@ function testEmptyFileSelectionState(testCase)
     fig = visualizeMatField('Visible', 'off');
     cleanup = onCleanup(@() closeViewer(fig));
 
+    testCase.verifyEmpty(fig.UserData.MatFile);
+    testCase.verifyEqual(fig.UserData.Variable, '');
+    testCase.verifyEqual(string(fig.UserData.VariableDropDown.Enable), "off");
+    testCase.verifyEqual(string(fig.UserData.Axes.Visible), "off");
+end
+
+
+function testTrueZeroArgumentCall(testCase)
+    fig = visualizeMatField();
+    cleanup = onCleanup(@() closeViewer(fig));
+
+    testCase.verifyEqual(fig.UserData.Source.Type, 'matfile');
     testCase.verifyEmpty(fig.UserData.MatFile);
     testCase.verifyEqual(fig.UserData.Variable, '');
     testCase.verifyEqual(string(fig.UserData.VariableDropDown.Enable), "off");
@@ -139,8 +154,180 @@ function testViewOwnedPlaybackFrameAdvance(testCase)
 end
 
 
+function testDirectLocalArrayUsesMemorySnapshot(testCase)
+    localVolume = reshape(single(1:120), [4, 5, 6]);
+    fig = visualizeMatField(localVolume, 'PlotType', 'volume', ...
+        'Visible', 'off');
+    cleanup = onCleanup(@() closeViewer(fig));
+
+    testCase.verifyEqual(fig.UserData.Source.Type, 'memory');
+    testCase.verifyEqual(fig.UserData.Source.RootName, 'localVolume');
+    testCase.verifyEqual(fig.UserData.Variable, 'localVolume');
+    testCase.verifyEqual(class(fig.UserData.Data), 'single');
+
+    localVolume(:) = 0;
+    testCase.verifyEqual(max(localVolume, [], 'all'), single(0));
+    testCase.verifyGreaterThan(max(fig.UserData.Data, [], 'all'), single(0));
+end
+
+
+function testDirectTwoDimensionalArrayUsesSlice(testCase)
+    localMatrix = reshape(single(1:20), [4, 5]);
+    fig = visualizeMatField(localMatrix, 'Visible', 'off');
+    cleanup = onCleanup(@() closeViewer(fig));
+
+    testCase.verifyEqual(fig.UserData.Source.Type, 'memory');
+    testCase.verifyEqual(fig.UserData.FieldDimension, 2);
+    testCase.verifyEqual(fig.UserData.PlotMode, 'slice');
+    testCase.verifyEmpty(fig.UserData.Dimension);
+end
+
+
+function testDirectNestedStructureOffersTargetSelector(testCase)
+    localStruct = struct( ...
+        'nested', struct('volume', reshape(single(1:120), [4, 5, 6])), ...
+        'matrix', reshape(1:20, [4, 5]), ...
+        'ignoredVector', 1:8);
+    fig = visualizeMatField(localStruct, 'Visible', 'off');
+    cleanup = onCleanup(@() closeViewer(fig));
+
+    expectedPath = 'localStruct.nested.volume';
+    testCase.verifyTrue(any(strcmp( ...
+        fig.UserData.Options.AvailableVariables, expectedPath)));
+    testCase.verifyFalse(any(contains( ...
+        fig.UserData.Options.AvailableVariables, 'ignoredVector')));
+    selector = fig.UserData.VariableDropDown;
+    selector.Value = expectedPath;
+    selector.ValueChangedFcn(selector, []);
+    testCase.verifyEqual(fig.UserData.Variable, expectedPath);
+    testCase.verifyEqual(fig.UserData.PlotMode, 'volume');
+end
+
+
+function testBaseWorkspaceExplicitTargetAndRefresh(testCase)
+    workspaceName = testCase.TestData.WorkspaceName;
+    clearBaseVariable(workspaceName);
+    baseCleanup = onCleanup(@() clearBaseVariable(workspaceName));
+    assignin('base', workspaceName, reshape(single(1:120), [4, 5, 6]));
+
+    fig = visualizeMatField('SourceType', 'workspace', ...
+        'WorkspaceVariable', workspaceName, 'Visible', 'off');
+    figureCleanup = onCleanup(@() closeViewer(fig));
+    testCase.verifyEqual(fig.UserData.Source.Type, 'workspace');
+    testCase.verifyEqual(fig.UserData.PlotMode, 'volume');
+    testCase.verifyTrue(isgraphics(fig.UserData.WorkspaceRefreshButton));
+
+    assignin('base', workspaceName, reshape(single(1:20), [4, 5]));
+    refreshButton = fig.UserData.WorkspaceRefreshButton;
+    refreshButton.ButtonPushedFcn(refreshButton, []);
+    testCase.verifyEqual(fig.UserData.PlotMode, 'slice');
+    testCase.verifyEqual(fig.UserData.DataSize, [4, 5]);
+
+    clearBaseVariable(workspaceName);
+    refreshButton = fig.UserData.WorkspaceRefreshButton;
+    refreshButton.ButtonPushedFcn(refreshButton, []);
+    testCase.verifyEmpty(fig.UserData.Variable);
+    testCase.verifyEqual(string(fig.UserData.Axes.Visible), "off");
+    clear figureCleanup baseCleanup
+end
+
+
+function testBaseWorkspaceNestedStructureDiscovery(testCase)
+    workspaceName = [testCase.TestData.WorkspaceName, 'Nested'];
+    clearBaseVariable(workspaceName);
+    baseCleanup = onCleanup(@() clearBaseVariable(workspaceName));
+    workspaceStruct = struct('caseA', struct( ...
+        'field', reshape(single(1:120), [4, 5, 6]), ...
+        'ignored', 1:8));
+    assignin('base', workspaceName, workspaceStruct);
+
+    fig = visualizeMatField('SourceType', 'workspace', 'Visible', 'off');
+    figureCleanup = onCleanup(@() closeViewer(fig));
+    expectedPath = [workspaceName, '.caseA.field'];
+    testCase.verifyTrue(any(strcmp( ...
+        fig.UserData.Options.AvailableVariables, expectedPath)));
+    targetSelector = fig.UserData.VariableDropDown;
+    targetSelector.Value = expectedPath;
+    targetSelector.ValueChangedFcn(targetSelector, []);
+    testCase.verifyEqual(fig.UserData.Variable, expectedPath);
+    testCase.verifyEqual(fig.UserData.PlotMode, 'volume');
+    clear figureCleanup baseCleanup
+end
+
+
+function testSourceTypeDropDownSwitchesToWorkspace(testCase)
+    workspaceName = testCase.TestData.WorkspaceName;
+    clearBaseVariable(workspaceName);
+    baseCleanup = onCleanup(@() clearBaseVariable(workspaceName));
+    assignin('base', workspaceName, reshape(single(1:120), [4, 5, 6]));
+
+    fig = visualizeMatField('Visible', 'off');
+    figureCleanup = onCleanup(@() closeViewer(fig));
+    sourceSelector = fig.UserData.SourceTypeDropDown;
+    sourceSelector.Value = 'workspace';
+    sourceSelector.ValueChangedFcn(sourceSelector, []);
+
+    testCase.verifyEqual(fig.UserData.Source.Type, 'workspace');
+    testCase.verifyTrue(any(strcmp( ...
+        fig.UserData.Options.AvailableVariables, workspaceName)));
+    testCase.verifyTrue(isgraphics(fig.UserData.WorkspaceRefreshButton));
+    clear figureCleanup baseCleanup
+end
+
+
+function testMemorySourceCannotBeBrowsedWithoutValue(testCase)
+    testCase.verifyError( ...
+        @() visualizeMatField('SourceType', 'memory', 'Visible', 'off'), ...
+        'visualizeMatField:MemorySourceRequiresValue');
+end
+
+
+function testSourceRoundTripStopsPlayback(testCase)
+    workspaceName = testCase.TestData.WorkspaceName;
+    clearBaseVariable(workspaceName);
+    baseCleanup = onCleanup(@() clearBaseVariable(workspaceName));
+    assignin('base', workspaceName, reshape(single(1:120), [4, 5, 6]));
+
+    fig = visualizeMatField('PlotType', 'slice', 'Dimension', 3, ...
+        'Visible', 'off');
+    figureCleanup = onCleanup(@() closeViewer(fig));
+    pathEdit = fig.UserData.FilePathEdit;
+    pathEdit.Value = testCase.TestData.MatFile;
+    pathEdit.ValueChangedFcn(pathEdit, []);
+    targetSelector = fig.UserData.VariableDropDown;
+    targetSelector.Value = 'volume3d';
+    targetSelector.ValueChangedFcn(targetSelector, []);
+
+    playbackTimer = fig.UserData.PlaybackTimer;
+    playButton = fig.UserData.PlayButton;
+    playButton.ButtonPushedFcn(playButton, []);
+    testCase.verifyEqual(playbackTimer.Running, 'on');
+
+    sourceSelector = fig.UserData.SourceTypeDropDown;
+    sourceSelector.Value = 'workspace';
+    sourceSelector.ValueChangedFcn(sourceSelector, []);
+    testCase.verifyFalse(isvalid(playbackTimer));
+    testCase.verifyEqual(fig.UserData.Source.Type, 'workspace');
+
+    sourceSelector = fig.UserData.SourceTypeDropDown;
+    sourceSelector.Value = 'matfile';
+    sourceSelector.ValueChangedFcn(sourceSelector, []);
+    testCase.verifyEqual(fig.UserData.Source.Type, 'matfile');
+    testCase.verifyTrue(isgraphics(fig.UserData.FilePathEdit));
+    testCase.verifyEqual(string(fig.UserData.VariableDropDown.Enable), "off");
+    clear figureCleanup baseCleanup
+end
+
+
 function closeViewer(fig)
     if isgraphics(fig)
         close(fig);
+    end
+end
+
+
+function clearBaseVariable(variableName)
+    if evalin('base', sprintf('exist(''%s'', ''var'')', variableName))
+        evalin('base', ['clear ', variableName]);
     end
 end
