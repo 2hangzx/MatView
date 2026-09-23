@@ -7,6 +7,56 @@
 
 ## 快速开始
 
+### Conda / Miniconda（换设备安装）
+
+先复制或克隆完整项目，在终端中进入 `SwirlFlame/python` 目录；Windows 可使用 Miniconda Prompt。
+不要只复制环境文件，因为安装时还需要这里的 `pyproject.toml` 和 `src/`。
+
+```shell
+conda env create -f environment.yml
+conda activate fieldviz
+python -m pip check
+python -m fieldviz
+```
+
+这会创建独立的 Python 3.12 环境，安装查看器、基础依赖，以及 Zarr/Safetensors 支持。
+Conda 负责 Python 和 pip；应用依赖由 pip 统一安装，避免给 Qt/VTK/NumPy 同时安装两套发行包。
+环境文件不包含当前机器的绝对路径、CUDA 或平台专属构建编号。
+
+已有适用的独立 Conda 环境时，激活后在本目录执行：
+
+```shell
+python -m pip install -r requirements.txt
+python -m pip check
+```
+
+`requirements.txt` 通过 `-e .[storage]` 引用本项目，实际依赖和版本范围仍统一由 `pyproject.toml` 管理。
+它是 **pip requirements**，不是 `conda install --file` 接受的 Conda 包清单。
+这里采用可编辑安装：迁移时要复制源码并重新安装，不要复制旧 `.venv`/Conda 环境，也不要在安装后直接移动或删除源码目录。
+
+#### 可选：Torch 与开发测试
+
+只有读取 `.pt/.pth` 或直接传入 Tensor 时才需要 Torch。Windows/Linux 仅需 CPU 支持时：
+
+```shell
+python -m pip install "torch>=2.6" --index-url https://download.pytorch.org/whl/cpu
+```
+
+macOS 可使用 `python -m pip install "torch>=2.6"`。如需要 GPU 版，请根据目标机器按
+[PyTorch 官方安装说明](https://pytorch.org/get-started/locally/)选择安装命令；不把一台机器的 CUDA 配置写入通用环境文件。
+需要开发测试工具时执行 `python -m pip install -e ".[dev,storage]"`。
+安装后可运行 `python examples/demo.py` 验证桌面绘图。
+
+默认环境名为 `fieldviz`。如已存在同名环境，可使用
+`conda env create -n fieldviz-new -f environment.yml` 创建新环境，再 `conda activate fieldviz-new`，不会覆盖旧环境。
+这些文件用于**可迁移安装**，不是精确锁定全部传递依赖的 lock 文件；不同时间解析出的兼容版本可能不同。
+如需严格复现实验，还应记录同一系统上的具体包版本和图形驱动信息。
+
+环境声明采用 [Conda 的 environment.yml 格式](https://docs.conda.io/projects/conda/en/stable/user-guide/tasks/manage-environments.html#creating-an-environment-from-an-environment-yml-file)，
+pip 清单格式见 [pip 官方说明](https://pip.pypa.io/en/stable/reference/requirements-file-format/)。
+
+### venv（不使用 Conda）
+
 建议使用 Python 3.12（包要求 Python ≥ 3.11）和有图形桌面的环境。在本目录运行：
 
 ```powershell

@@ -5,6 +5,8 @@
 ```text
 python/
 ├── pyproject.toml           包、依赖和 fieldviz 命令入口
+├── environment.yml         Conda/Miniconda 环境入口，固定 Python 3.12
+├── requirements.txt        pip 安装入口，复用 pyproject.toml 的运行/存储依赖
 ├── src/fieldviz/
 │   ├── api.py               主线程/API 参数入口、应用与窗口生命周期
 │   ├── cli.py, __main__.py  命令行参数 → 同一个 API

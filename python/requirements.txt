@@ -1,0 +1,5 @@
+# Run from SwirlFlame/python: python -m pip install -r requirements.txt
+# The dependency source of truth is pyproject.toml, not a duplicated package list.
+# Include the viewer plus Zarr/Safetensors support. Torch and dev tools are optional.
+# Editable installation requires keeping this source directory in place.
+-e .[storage]

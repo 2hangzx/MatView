@@ -1,0 +1,13 @@
+# Run from SwirlFlame/python: conda env create -f environment.yml
+# Keep the environment portable: no machine-specific prefix or platform build IDs.
+name: fieldviz
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - pip>=24
+  # Conda owns Python/pip; pip owns the application's numerical and GUI stack.
+  # Do not install a second Qt/VTK/NumPy stack via conda into this environment.
+  - pip:
+      - -r requirements.txt

@@ -26,6 +26,12 @@ Windows，Python 3.12.14，MATLAB R2026a。
 项目使用版本范围而非这些版本的完整锁文件。其他操作系统、GPU Tensor、远程内核和旧版图形驱动未做实机验证。
 硬件渲染差异不保证逐像素复现 MATLAB 图像；验证重点是数值、维度、交互和布局。
 
+### Conda 环境文件的验证边界
+
+`environment.yml` 配合 `requirements.txt` 提供 Conda/Miniconda 迁移入口，步骤见 README。
+本次终端未找到可用的 Conda 命令，未实际运行 `conda env create`；不能将已有 venv 中的测试结果视为 Conda 创建成功。
+环境文件的 YAML 结构和本地 pip requirements 解析单独校验；目标设备仍需能访问 conda-forge/PyPI，并具备 Qt/VTK 所需图形环境。
+
 ## 运行测试
 
 在 `python/` 下：
