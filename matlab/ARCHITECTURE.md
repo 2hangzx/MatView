@@ -9,7 +9,7 @@
 ## 2. 目录与模块
 
 ```text
-SwirlFlame/
+SwirlFlame/matlab/
 ├─ visualizeMatField.m          公共入口、帮助文本和最高层流程
 ├─ +matfield/                   内部实现包，不作为独立路径加入 MATLAB path
 │  ├─ Input.m                   位置参数/Name-Value 解析与依赖校验
@@ -31,7 +31,7 @@ SwirlFlame/
 └─ VISUALIZATION.md             面向使用者的参数与交互说明
 ```
 
-`+matfield` 是 MATLAB package 目录。调用方只需把 `SwirlFlame` 根目录加入路径，
+`+matfield` 是 MATLAB package 目录。调用方只需把 `SwirlFlame/matlab` 目录加入路径，
 不要单独执行 `addpath('+matfield')`。包内模块采用静态方法类，仅用于组织命名空间，
 不创建模块对象。
 
@@ -115,7 +115,7 @@ Slice 另外保存 `Dimension`、`Index`、`ColorMode`、`CustomClim`、`Image` 
 在 MATLAB 中运行：
 
 ```matlab
-cd('D:\myDocuments\BUAA\NeRF-RI\CFDdata\SwirlFlame')
+cd('D:\myDocuments\BUAA\NeRF-RI\CFDdata\SwirlFlame\matlab')
 results = runtests(fullfile('tests', 'testVisualizeMatField.m'));
 assertSuccess(results)
 ```

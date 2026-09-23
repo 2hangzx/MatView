@@ -33,7 +33,7 @@
 %% 1. MAT file and variable specified, all other options use defaults
 % Volume mode. Use the in-window dropdown to switch modes.
 matFile = fullfile(fileparts(mfilename('fullpath')), ...
-    'Data', 'data_uniGrid_zFlowDirct.mat');
+    '..', 'Data', 'data_uniGrid_zFlowDirct.mat');
 visualizeMatField(matFile, 'rho.rho_XYZ');
 
 %% 1a. Specify the MAT file, then select the variable inside the viewer

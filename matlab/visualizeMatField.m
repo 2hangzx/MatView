@@ -3,11 +3,11 @@ function fig = visualizeMatField(varargin)
 %
 % Basic usage
 %   visualizeMatField()
-%   visualizeMatField('Data/data_uniGrid_zFlowDirct.mat')
-%   visualizeMatField('Data/data_uniGrid_zFlowDirct.mat', 'rho.rho_XYZ')
-%   visualizeMatField('Data/data_uniGrid_zFlowDirct.mat', 'T.T_XYZ', ...
+%   visualizeMatField('../Data/data_uniGrid_zFlowDirct.mat')
+%   visualizeMatField('../Data/data_uniGrid_zFlowDirct.mat', 'rho.rho_XYZ')
+%   visualizeMatField('../Data/data_uniGrid_zFlowDirct.mat', 'T.T_XYZ', ...
 %       'PlotType', 'slice', 'Dimension', 3, 'Index', 80)
-%   visualizeMatField('Data/data_uniGrid_zFlowDirct.mat', ...
+%   visualizeMatField('../Data/data_uniGrid_zFlowDirct.mat', ...
 %       'rho.gradNorm_XYZ', 'PlotType', 'volume')
 %   visualizeMatField(workspaceArray)
 %   visualizeMatField(workspaceStruct, 'flow.temperature')

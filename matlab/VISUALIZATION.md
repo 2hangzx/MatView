@@ -24,8 +24,8 @@ structure 都不会进入目标变量下拉列表。二维与三维目标的各�
 ## 常用命令
 
 ```matlab
-cd('D:\myDocuments\BUAA\NeRF-RI\CFDdata\SwirlFlame')
-matFile = fullfile(pwd, 'Data', 'data_uniGrid_zFlowDirct.mat');
+cd('D:\myDocuments\BUAA\NeRF-RI\CFDdata\SwirlFlame\matlab')
+matFile = fullfile(pwd, '..', 'Data', 'data_uniGrid_zFlowDirct.mat');
 
 % 不传参数：先在窗口中选择 MAT 文件，再选择目标变量
 visualizeMatField()
@@ -107,7 +107,7 @@ visualizeMatField('SourceType', 'workspace', Name, Value, ...)
 因此，下面是完整且规范的调用：
 
 ```matlab
-visualizeMatField('Data/data_uniGrid_zFlowDirct.mat', 'n.gradX_XYZ', ...
+visualizeMatField('../Data/data_uniGrid_zFlowDirct.mat', 'n.gradX_XYZ', ...
     'PlotType', 'slice', ...
     'Dimension', 2, ...
     'Index', 60)
