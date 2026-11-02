@@ -17,6 +17,7 @@ from .rendering import prepare_slice, prepare_mesh
 from .sources import open_source
 from .widgets import AdaptiveGrid, ColorBar, NumberControl
 from .views import SliceView, IsosurfaceView
+from .subspace_controls import SubspaceControls
 
 
 class ViewerWindow(QMainWindow):
@@ -32,6 +33,7 @@ class ViewerWindow(QMainWindow):
         self._syncing = False
         self._groups = {}
         self._volume_view = None
+        self._subspace_busy = False
         colors = (colormaps[options.colormap](np.linspace(0, 1, 256)) * 255).astype(np.uint8)
         self.setWindowTitle("FieldViz · 二维/三维数组查看器")
         self.resize(1180, 900)
@@ -85,6 +87,10 @@ class ViewerWindow(QMainWindow):
         self.play_timer = QTimer(self)
         self.play_timer.setInterval(120)
         self.play_timer.timeout.connect(self._advance)
+        self.subspace_timer = QTimer(self)
+        self.subspace_timer.setSingleShot(True)
+        self.subspace_timer.setInterval(60)
+        self.subspace_timer.timeout.connect(self._select_subspace)
         self._populate_targets()
         if initial_state is not None:
             self._activate(initial_state)
@@ -141,6 +147,11 @@ class ViewerWindow(QMainWindow):
         return combo
 
     def _build_controls(self):
+        form = self._group("subspace", "额外维度选择 → 二维/三维子数组")
+        self.subspace_controls = SubspaceControls()
+        self.subspace_controls.changed.connect(self._subspace_changed)
+        self.subspace_controls.failed.connect(self._error)
+        form.addRow(self.subspace_controls)
         form = self._group("mode", "绘图模式")
         self.mode_combo = self._combo([("三维等值面 (Volume)", "isosurface"), ("二维切片 (Slice)", "slice")])
         form.addRow(self.mode_combo)
@@ -217,6 +228,8 @@ class ViewerWindow(QMainWindow):
 
     def _blank(self, message="请选择一个二维或三维数组。"):
         self.stop_playback()
+        self.subspace_timer.stop()
+        self._subspace_busy = False
         self.render_timer.stop()
         self.render_job.invalidate()
         self.state = None
@@ -250,13 +263,15 @@ class ViewerWindow(QMainWindow):
         if not self.source:
             return
         key = self.state.handle.target.key if self.state else None
+        selection = ({"retained_dimensions": self.state.retained_dimensions,
+                      "extra_indices": dict(self.state.extra_indices)} if self.state else {})
         source = self.source
         self._blank("正在刷新数据快照…")
         self.target_combo.setEnabled(False)
         self.refresh_button.setEnabled(False)
         def refresh():
             current = source.refresh()
-            state = ViewState(current.open_target(key), self.options) if key else None
+            state = ViewState(current.open_target(key), self.options, **selection) if key else None
             return "source", current, state
         self.load_job.submit(refresh)
 
@@ -290,20 +305,29 @@ class ViewerWindow(QMainWindow):
                 self.target_combo.setCurrentIndex(1)
                 return
         if state is not None:
-            self._activate(state)
+            preserve_view = (kind == "subspace" and self.state is not None
+                             and state.retained_dimensions == self.state.retained_dimensions)
+            self._subspace_busy = False
+            self._activate(state, preserve_view=preserve_view)
         else:
             self._blank()
             self.statusBar().showMessage("请选择目标变量")
 
-    def _activate(self, state):
+    def _activate(self, state, *, preserve_view=False):
         self.state = state
-        self._identity += 1
+        if not preserve_view:
+            self._identity += 1
         self._populate_targets(state.handle.target.key)
         self.setWindowTitle(f"{state.handle.target.key} · FieldViz")
         self._sync_controls()
         self._schedule_render()
 
     def _load_failed(self, message):
+        if self._subspace_busy and self.state is not None:
+            self._subspace_busy = False
+            self._sync_controls()
+            self._error(message)
+            return
         self._blank("读取失败；请检查路径、变量或参数后重试。")
         if self.source is not None:
             self.path_edit.setText(self.source.name)
@@ -320,6 +344,7 @@ class ViewerWindow(QMainWindow):
         automatic = s is not None and s.iso_mode == "automatic"
         single = s is not None and s.iso_mode == "single"
         visibility = {
+            "subspace": s is not None and s.source_handle.target.ndim > 3,
             "mode": o.mode is None and is_3d,
             "dimension": is_slice and is_3d and o.dimension is None,
             "index": is_slice and is_3d and o.index is None,
@@ -334,7 +359,15 @@ class ViewerWindow(QMainWindow):
         }
         for key, group in self._groups.items():
             group.setVisible(visibility[key] if s else key in ("mode", "iso_mode", "count", "alpha"))
+            group.setEnabled(key == "subspace" or not self._subspace_busy)
         if s:
+            if s.source_handle.target.ndim > 3:
+                self.subspace_controls.configure(s, o)
+            self.dimension_combo.blockSignals(True)
+            self.dimension_combo.clear()
+            for i, dimension in enumerate(s.handle.target.axes, 1):
+                self.dimension_combo.addItem(f"Dim {dimension}", i)
+            self.dimension_combo.blockSignals(False)
             for combo, value in ((self.mode_combo, s.mode), (self.dimension_combo, s.dimension),
                                  (self.color_combo, s.color_mode), (self.iso_combo, s.iso_mode)):
                 combo.blockSignals(True)
@@ -356,6 +389,30 @@ class ViewerWindow(QMainWindow):
             self.play_button.setEnabled(is_slice or s.bounds[0] < s.bounds[1])
         self.controls.reflow()
         self._syncing = False
+
+    def _subspace_changed(self, dimensions, indices):
+        if self.state is None:
+            return
+        self.stop_playback()
+        self.render_timer.stop()
+        self.render_job.invalidate()
+        self.load_job.invalidate()
+        self._subspace_busy = True
+        for key, group in self._groups.items():
+            if key != "subspace":
+                group.setEnabled(False)
+        self._pending_subspace = dimensions, dict(indices)
+        if not self.subspace_timer.isActive():
+            self.subspace_timer.start()
+        self.statusBar().showMessage("正在选择子数组并更新其统计范围…")
+
+    def _select_subspace(self):
+        if self.state is None:
+            return
+        dimensions, indices = self._pending_subspace
+        state, source = self.state, self.source
+        options = self.options
+        self.load_job.submit(lambda: ("subspace", source, state.reselect(options, dimensions, indices)))
 
     def _mode_changed(self, _):
         if self._syncing or self.state is None:
@@ -448,7 +505,7 @@ class ViewerWindow(QMainWindow):
 
     def _render(self):
         s = self.state
-        if s is None:
+        if s is None or self._subspace_busy:
             return
         if s.mode == "slice":
             function = partial(prepare_slice, s.handle, s.dimension, s.index, s.color_mode, s.color_bounds)
@@ -465,6 +522,10 @@ class ViewerWindow(QMainWindow):
         s = self.state
         low, high = s.bounds
         stats = f"全局 [min, max]：{low:.10g} / {high:.10g}    原始类型：{s.handle.target.dtype}"
+        if s.source_handle.target.ndim > 3:
+            selection = ", ".join(f"Dim {d}={i}" for d, i in s.extra_indices.items())
+            retained = ", ".join(f"Dim {d}" for d in s.retained_dimensions)
+            stats = f"原始形状：{s.source_handle.target.shape}    保留：{retained}    {selection}\n当前子数组" + stats
         if mode == "slice":
             self.slice_view.display(frame, (self._identity, s.dimension))
             self.stack.setCurrentWidget(self.slice_view)
@@ -473,7 +534,8 @@ class ViewerWindow(QMainWindow):
                 stats += f"    切片 [min, max]：{frame.bounds[0]:.10g} / {frame.bounds[1]:.10g}"
             else:
                 stats += "    当前切片无有限数值"
-            suffix = f"Dim {s.dimension} · 索引 {s.index}" if s.handle.target.ndim == 3 else "二维数组"
+            suffix = (f"Dim {s.handle.target.axes[s.dimension - 1]} · 索引 {s.index}"
+                      if s.handle.target.ndim == 3 else "二维数组")
             self.title.setText(f"{s.handle.target.key} | {suffix}")
             if s.color_mode == "slice":
                 s.color_bounds = frame.limits
@@ -483,7 +545,8 @@ class ViewerWindow(QMainWindow):
             if self._volume_view is None:
                 self._volume_view = IsosurfaceView(self.options.colormap)
                 self.stack.addWidget(self._volume_view)
-            self._volume_view.display(mesh, s.handle.target.shape, display_range(s.bounds), s.alpha, self._identity)
+            self._volume_view.display(mesh, s.handle.target.shape, display_range(s.bounds), s.alpha,
+                                      self._identity, s.handle.target.axes)
             self.stack.setCurrentWidget(self._volume_view)
             self.colorbar.set_limits(display_range(s.bounds))
             levels = ", ".join(f"{x:.8g}" for x in s.levels())
@@ -507,7 +570,7 @@ class ViewerWindow(QMainWindow):
     def _toggle_play(self):
         if self.play_timer.isActive():
             self.stop_playback()
-        elif self.state is not None:
+        elif self.state is not None and not self._subspace_busy:
             self.play_timer.start()
             self.play_button.setText("暂停")
 
@@ -516,7 +579,8 @@ class ViewerWindow(QMainWindow):
         self.play_button.setText("播放")
 
     def _advance(self):
-        if self.state is None or self.render_job.busy or self.render_timer.isActive():
+        if (self.state is None or self._subspace_busy or self.render_job.busy
+                or self.render_timer.isActive()):
             return
         self.state.advance()
         self._sync_controls()
@@ -526,6 +590,7 @@ class ViewerWindow(QMainWindow):
         self._closed = True
         self.stop_playback()
         self.render_timer.stop()
+        self.subspace_timer.stop()
         self.load_job.close()
         self.render_job.close()
         if self._volume_view is not None:

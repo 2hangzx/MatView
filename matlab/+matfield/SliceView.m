@@ -55,8 +55,7 @@ classdef SliceView
             variableLabel.Tooltip = matfield.Data.tooltip(opts.Source);
         
             globalLabel = uilabel(controls, ...
-                'Text', sprintf('全局 [min, max]：%s / %s', ...
-                matfield.Graphics.formatNumber(globalRange(1)), matfield.Graphics.formatNumber(globalRange(2))));
+                'Text', matfield.Subspace.globalRangeLabel(opts, globalRange));
             globalLabel.Layout.Row = 1;
             globalLabel.Layout.Column = [4, 7];
         
@@ -90,7 +89,7 @@ classdef SliceView
                 dimText.Layout.Row = 3;
                 dimText.Layout.Column = 1;
                 dimDropDown = uidropdown(controls, ...
-                    'Items', {'Dim 1', 'Dim 2', 'Dim 3'}, ...
+                    'Items', cellstr(compose('Dim %d', matfield.Subspace.axisDimensions(opts))), ...
                     'ItemsData', [1, 2, 3], 'Value', dimension);
                 dimDropDown.Layout.Row = 3;
                 dimDropDown.Layout.Column = 2;
@@ -475,6 +474,7 @@ classdef SliceView
                 matfield.Graphics.restoreAutomaticColorbarTicks(state.Colorbar);
             end
             fig.UserData = state;
+            matfield.Layout.placeColorbar(fig);
             drawnow limitrate nocallbacks
         end
 
@@ -562,15 +562,16 @@ classdef SliceView
             state.SliceLabel.Text = sprintf('切片 [min, max]：%s / %s', ...
                 matfield.Graphics.formatNumber(sliceRange(1)), matfield.Graphics.formatNumber(sliceRange(2)));
         
+            originalDims = matfield.Subspace.axisDimensions(state.Options);
             if state.FieldDimension == 2
                 title(state.Axes, sprintf('%s  |  2-D array', state.Variable), ...
                     'Interpreter', 'none');
             else
                 title(state.Axes, sprintf('%s  |  Dim %d = %d', ...
-                    state.Variable, dimension, index), 'Interpreter', 'none');
+                    state.Variable, originalDims(dimension), index), 'Interpreter', 'none');
             end
-            xlabel(state.Axes, sprintf('Dim %d index', remainingDims(1)));
-            ylabel(state.Axes, sprintf('Dim %d index', remainingDims(2)));
+            xlabel(state.Axes, sprintf('Dim %d index', originalDims(remainingDims(1))));
+            ylabel(state.Axes, sprintf('Dim %d index', originalDims(remainingDims(2))));
             axis(state.Axes, 'xy');
             axis(state.Axes, 'image');
             state.Axes.XLim = [0.5, size(displayPlane, 2) + 0.5];
@@ -581,6 +582,7 @@ classdef SliceView
                 matfield.Graphics.restoreAutomaticColorbarTicks(state.Colorbar);
             end
             fig.UserData = state;
+            matfield.Layout.placeColorbar(fig);
             drawnow limitrate nocallbacks
         end
 

@@ -4,6 +4,7 @@
 
 `visualizeMatField` 用于从 MAT 文件、MATLAB Base Workspace 或调用时直接传入的内存值中
 发现并加载符合规则的实数数值二维/三维数组，以二维切片或三维等值面方式交互显示。
+高维数值来源先经 `Subspace` 提取二维/三维子数组，渲染器仍只处理二维/三维标量场。
 对外只有 `visualizeMatField.m` 一个公共入口；实现代码位于 `+matfield` MATLAB 包中。
 
 ## 2. 目录与模块
@@ -15,6 +16,7 @@ SwirlFlame/matlab/
 │  ├─ Input.m                   位置参数/Name-Value 解析与依赖校验
 │  ├─ Data.m                    三种数据源的统一调度接口
 │  ├─ FieldRules.m              目标数组分类、嵌套遍历和公共数值校验
+│  ├─ Subspace.m                高维选择规则、额外维度控件、子数组提取与更新
 │  ├─ MatSource.m               MAT 路径解析、变量发现和按目标加载
 │  ├─ WorkspaceSource.m         Base Workspace 枚举、读取和刷新
 │  ├─ MemorySource.m            直接数组/标量结构体的快照发现和读取
@@ -26,7 +28,9 @@ SwirlFlame/matlab/
 │  ├─ Playback.m                公共 timer 启停、周期更新和销毁
 │  └─ Graphics.m                colorbar、滑条、数值格式和图形句柄工具
 ├─ tests/
-│  └─ testVisualizeMatField.m   公共流程回归测试
+│  ├─ testVisualizeMatField.m   公共流程回归测试
+│  ├─ testSubspace.m            高维来源、索引/模式/布局和错误恢复测试
+│  └─ visualSubspaceSmoke.m     高维窗口截图检查（输出到 artifacts/）
 ├─ demoVisualizeMatField.m      常用调用示例
 └─ VISUALIZATION.md             面向使用者的参数与交互说明
 ```
@@ -90,6 +94,8 @@ visualizeMatField
 - 来源：`Source`（类型、位置、显示名以及内存根值）、`Variable`。
 - 数据：`Data`、`DataSize`、`FieldDimension`、`GlobalRange`。
 - 配置：`Options`、`PlotMode`。
+- 高维来源：`Options.Subspace` 保存 `RawData`、`OriginalSize`、`RetainedDimensions`、`ExtraIndices`；
+  `Options.AxesDimensions` 将局部绘图维度映射至原数组编号，`SubspaceControls` 保存选择器句柄。
 - 图形：`Axes`、`Colorbar`、`Layout`、数据源控件句柄。
 - 生命周期：`PlaybackTimer`、`PlayButton`。
 
@@ -123,3 +129,14 @@ assertSuccess(results)
 测试覆盖数据源切换、MAT/Workspace/Memory 变量选择、Workspace 刷新、二维 Slice、
 三维 Slice、Volume、模式往返切换、播放和响应式布局。涉及视觉布局或三维鼠标交互的
 改动，自动测试通过后仍应使用真实可见窗口进行一次人工检查。
+
+高维升级可运行 `results = runtests('tests'); assertSuccess(results)`。
+`visualSubspaceSmoke`（先 `addpath('tests')`）生成可见窗口并导出宽/窄窗口截图供检查；`artifacts/` 被 Git 忽略。
+
+高维更新链：来源发现 → `Subspace.prepare` → 现有 Slice/Volume 视图。
+`FieldRules.classifyShape` 保持二维/三维规则，`classifySourceShape` 另负责发现高维候选。
+`prepare` 用基本索引和 reshape 去除已经固定索引的轴，不转置、不平均、不改变数值类型。
+同一保留维度下更换额外索引只更新当前数据、范围和图像；保留维度改变后在同一 figure 中建立新视图。
+来源或变量改变时重新校验子数组；不在 UI 回调中访问最初调用者的局部 workspace。
+绘图区使用由网格管理的 `PlotCanvas`，内部坐标区与颜色栏各自有明确位置与留白。
+画布关闭自动缩放子组件，通过尺寸回调统一定位，避免 MATLAB 对 image 方形坐标区的自动调整挤压颜色栏。

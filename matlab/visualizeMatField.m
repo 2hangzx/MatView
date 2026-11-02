@@ -48,6 +48,8 @@ function fig = visualizeMatField(varargin)
 %                     /'isosurface'
 %   Dimension         Numeric scalar 1, 2, or 3
 %   Index             Positive integer slice index
+%   RetainedDimensions Increasing 2/3 original dimension numbers for N-D data
+%   ExtraIndices      N-by-2 [dimension index] pairs, both 1-based
 %   Colormap          MATLAB colormap name, default 'turbo'
 %   ColorLimits       'global', 'slice', or numeric [low high]
 %   NumIsosurfaces    Integer in [1, 12], default 5
@@ -103,12 +105,11 @@ function fig = visualizeMatField(varargin)
         return
     end
 
-    [fieldData, opts.Source, fieldDimension, canonicalPath] = ...
+    [fieldData, opts.Source, ~, canonicalPath] = ...
         matfield.Data.loadTarget(opts.Source, opts.Variable);
     opts.Variable = canonicalPath;
-    opts.FieldDimension = fieldDimension;
-    opts.PlotType = matfield.Data.resolvePlotTypeForField(opts, fieldDimension);
-    globalRange = matfield.Data.validateLoadedArray(fieldData, opts);
+    [fieldData, opts, globalRange] = matfield.Subspace.prepare(fieldData, opts);
+    fieldDimension = opts.FieldDimension;
 
     if strcmp(opts.Source.Type, 'matfile')
         opts.MatFile = opts.Source.Location;

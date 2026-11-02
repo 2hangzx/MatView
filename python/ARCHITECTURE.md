@@ -11,6 +11,8 @@ python/
 │   ├── api.py               主线程/API 参数入口、应用与窗口生命周期
 │   ├── cli.py, __main__.py  命令行参数 → 同一个 API
 │   ├── core.py              目标规则、ArrayHandle、Options、ViewState（无 Qt）
+│   ├── subspace.py          高维来源 → 二维/三维惰性子数组，保留原始维度编号
+│   ├── subspace_controls.py 保留维度输入、额外维度索引输入/滑条
 │   ├── sources/            数据来源适配层（无 Qt）
 │   │   ├── base.py          DataSource 接口、路径标识规则
 │   │   ├── files.py         MAT / NumPy / HDF5
@@ -47,6 +49,12 @@ CLI ─┐
 数据层不引用窗口或 Qt；绘图准备层不读取控件；所有图形对象修改均在主线程。
 没有事件总线、RPC、数据库或跨进程通信。窗口拥有一个 `ViewState`，UI 信号更新该状态；
 后台任务只捕获一次计算所需的句柄和参数，不访问不断变化的控件。
+
+高维来源的 `source_shape` 负责识别可提取子数组的候选，`field_shape` 仍只判定二维/三维绘图目标。
+`ViewState.source_handle` 保留原始数组句柄，`subspace.project` 用基本索引生成 `ViewState.handle`。
+`Target.axes` 记录子数组对应的原数组维度编号，传给切片/等值面坐标标签。
+切换额外索引在读取任务队列中更新子数组及统计；只交付最新选择。该过程不会把完整高维数组送给渲染器。
+NPY/HDF5/Zarr 继续按索引读取；内存快照等需要完整载入的适配器保持原有行为。
 
 ### 三个顶层区域
 

@@ -9,6 +9,7 @@ visualize_field(
     color_limits=None, iso_values=None, num_isosurfaces=None,
     iso_range=None, surface_alpha=None, max_render_size=None,
     colormap="turbo", show=True,
+    retained_dimensions=None, extra_indices=None,
 )
 ```
 
@@ -21,7 +22,7 @@ visualize_field(
 2. `None` 表示用户没有显式固定该选项：使用默认值，并在所属分支提供控件。
 3. 显式指定的选项不再由对应控件修改；来源/目标仍显示身份信息但不可编辑。
 4. 子参数不能绕过上级约束；互斥分支不得同时传入。
-5. 维度 `dimension=1/2/3` 与索引 `index=1,2,...` 都从 **1** 开始。
+5. 维度编号与索引都从 **1** 开始；普通二维/三维数组沿用 `dimension=1/2/3`。
    这是与 MATLAB 保持一致的刻意选择；内部读取时才转换为 NumPy 的 0 基索引。
    不接受 X/Y/Z/I/J/K 或字符串维度别名。
 
@@ -45,6 +46,28 @@ visualize_field(
 
 ## 目标 → 模式
 
+高维目标首先经过子数组选择，再应用下方的模式规则。
+
+### 高维来源 → 二维/三维子数组
+
+- `retained_dimensions=(1,2,3)`：递增的两个或三个**原数组维度编号**；每个保留维度长度必须大于 1。
+- `extra_indices={4:2, 5:1}`：未保留维度的索引，编号和索引均为正整数。部分指定时其余额外维度仍默认 1，并可交互调整。
+- 默认保留最靠前的三个非单例维度（不足三个时保留两个），其他维度索引默认 1；不赋予轴物理含义。
+- 这两个参数不要求显式 `mode`；它们在绘图模式之前生效。二维/三维来源继续使用原流程，不支持用它们重排或降维。
+- 显式 `retained_dimensions` 固定保留维度；显式 `extra_indices` 仅固定其中指定的索引。
+- `dimension` 始终指原数组维度编号，必须属于三个保留维度之一。例如保留 `(1,3,4)` 时 `dimension=4` 合法。
+- 保留两个维度时固定为 Slice，不能传 `dimension/index` 或三维绘图参数。
+- 每个子数组独立计算全局范围；切换额外索引时停止播放并更新统计。未保留维度通过基本整数索引选取，不做平均、合并或通道颜色映射。
+
+```shell
+python -m fieldviz image_pred.npy --retained-dimensions 1 2 3 --extra-index 4=2
+# 多个额外维度时重复 --extra-index，例如 --extra-index 4=2 --extra-index 5=3
+```
+
+```python
+visualize_field("image_pred.npy", retained_dimensions=(1, 2, 3), extra_indices={4: 2})
+```
+
 | `mode` | 行为 |
 |---|---|
 | `None` | 三维默认 `isosurface`，允许窗口切换；二维固定 `slice` |
@@ -59,7 +82,7 @@ visualize_field(
 
 | 参数 | 默认与范围 | 控件 |
 |---|---|---|
-| `dimension` | 默认 3，整数 1/2/3 | 未指定时三维切片显示维度下拉框 |
+| `dimension` | 普通三维默认 3；高维子数组默认最后一个保留维度，使用原数组编号 | 未指定时三维切片显示维度下拉框 |
 | `index` | 默认该维度中间索引，从 1 开始 | 未指定时显示索引输入、滑条、播放 |
 | `color_limits` | 默认 `"global"`；也可 `"slice"` 或 `(low, high)` | 未指定时显示颜色栏模式和上下限输入/滑条 |
 

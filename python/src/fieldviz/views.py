@@ -61,7 +61,7 @@ class IsosurfaceView(QWidget):
         self._identity = None
         self._bounds = None
 
-    def display(self, mesh, shape, limits, alpha, identity):
+    def display(self, mesh, shape, limits, alpha, identity, dimensions=(1, 2, 3)):
         reset = self._identity != identity
         if reset:
             self.plotter.clear()
@@ -77,8 +77,9 @@ class IsosurfaceView(QWidget):
                 opacity=alpha, show_scalar_bar=False, reset_camera=False, render=False,
                 smooth_shading=True)
         if reset:
-            self.plotter.show_bounds(bounds=self._bounds, xtitle="Dim 1 index", ytitle="Dim 2 index",
-                                     ztitle="Dim 3 index", color="#313844", font_size=13,
+            self.plotter.show_bounds(bounds=self._bounds, xtitle=f"Dim {dimensions[0]} index",
+                                     ytitle=f"Dim {dimensions[1]} index", ztitle=f"Dim {dimensions[2]} index",
+                                     color="#313844", font_size=13,
                                      bold=False, all_edges=True, location="outer", use_2d=False,
                                      use_3d_text=False,
                                      n_xlabels=3, n_ylabels=3, n_zlabels=3, render=False)

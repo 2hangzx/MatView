@@ -37,12 +37,27 @@ classdef FieldRules
             tf = any(strcmp(char(className), numericClasses));
         end
 
+        function dimension = classifySourceShape(dataSize)
+            dimension = matfield.FieldRules.classifyShape(dataSize);
+            if dimension == 0 && numel(dataSize) >= 4 && ...
+                    all(dataSize > 0) && nnz(dataSize > 1) >= 2
+                dimension = numel(dataSize);
+            end
+        end
+
+        function dimension = classifySourceArray(value)
+            dimension = 0;
+            if isnumeric(value) && isreal(value) && ~issparse(value)
+                dimension = matfield.FieldRules.classifySourceShape(size(value));
+            end
+        end
+
         function info = collectNested(value, path, info)
             if nargin < 3
                 info = matfield.FieldRules.emptyInfo();
             end
             if isnumeric(value)
-                dimension = matfield.FieldRules.classifyArray(value);
+                dimension = matfield.FieldRules.classifySourceArray(value);
                 if dimension > 0
                     info(end + 1) = matfield.FieldRules.makeInfo( ...
                         path, size(value), dimension);
@@ -66,9 +81,18 @@ classdef FieldRules
         end
 
         function info = filterForOptions(info, opts)
-            if matfield.FieldRules.requiresThreeDimensions(opts)
-                info = info([info.Dimension] == 3);
+            keep = false(size(info));
+            for k = 1:numel(info)
+                try
+                    [retained, ~] = matfield.Subspace.selectShape( ...
+                        info(k).Size, opts.RetainedDimensions, opts.ExtraIndices);
+                    keep(k) = (~matfield.FieldRules.requiresThreeDimensions(opts) || numel(retained) == 3) && ...
+                        (~opts.Specified.Dimension || ismember(opts.RequestedDimension, retained));
+                catch
+                    keep(k) = false;
+                end
             end
+            info = info(keep);
             if ~isempty(info)
                 [~, order] = sort({info.Path});
                 info = info(order);
@@ -156,6 +180,15 @@ classdef FieldRules
                 error('visualizeMatField:NotTargetArray', ...
                     ['Variable "%s" must be a real numeric 2-D matrix or a real ', ...
                      'numeric 3-D array; got %s %s.'], ...
+                    variablePath, class(value), mat2str(size(value)));
+            end
+        end
+
+        function dimension = requireSourceArray(value, variablePath)
+            dimension = matfield.FieldRules.classifySourceArray(value);
+            if dimension == 0
+                error('visualizeMatField:NotTargetArray', ...
+                    'Variable "%s" must contain a real numeric 2-D/3-D field; got %s %s.', ...
                     variablePath, class(value), mat2str(size(value)));
             end
         end

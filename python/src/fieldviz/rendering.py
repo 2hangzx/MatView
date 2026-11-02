@@ -18,7 +18,8 @@ def prepare_slice(handle, dimension, index, color_mode, color_bounds):
     finite = data[np.isfinite(data)]
     bounds = (float(finite.min()), float(finite.max())) if finite.size else None
     limits = display_range(bounds or handle.finite_range()) if color_mode == "slice" else color_bounds
-    axes = (1, 2) if handle.target.ndim == 2 else tuple(d for d in (1, 2, 3) if d != dimension)
+    axes = handle.target.axes if handle.target.ndim == 2 else tuple(
+        d for i, d in enumerate(handle.target.axes, 1) if i != dimension)
     return SliceFrame(data, bounds, limits, axes)
 
 

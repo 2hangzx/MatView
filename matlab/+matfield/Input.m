@@ -16,7 +16,8 @@ classdef Input
             optionNames = ["SourceType", "WorkspaceVariable", "PlotType", ...
                 "Dimension", "Index", "Colormap", "ColorLimits", ...
                 "NumIsosurfaces", "IsoRange", "IsoValues", ...
-                "SurfaceAlpha", "MaxRenderSize", "Visible"];
+                "SurfaceAlpha", "MaxRenderSize", "Visible", ...
+                "RetainedDimensions", "ExtraIndices"];
             sourceInput = [];
             sourceSpecified = false;
             variablePath = '';
@@ -98,6 +99,8 @@ classdef Input
             addParameter(parser, 'PlotType', 'volume', @matfield.Input.isTextScalar);
             addParameter(parser, 'Dimension', [], @matfield.Input.isDimensionValue);
             addParameter(parser, 'Index', [], @matfield.Input.isIndexValue);
+            addParameter(parser, 'RetainedDimensions', [], @matfield.Subspace.isRetainedDimensions);
+            addParameter(parser, 'ExtraIndices', zeros(0, 2), @matfield.Subspace.isExtraIndices);
             addParameter(parser, 'Colormap', 'turbo', @matfield.Input.isTextScalar);
             addParameter(parser, 'ColorLimits', 'global', @matfield.Input.isColorLimitsValue);
             addParameter(parser, 'NumIsosurfaces', 5, ...
@@ -197,6 +200,8 @@ classdef Input
                 'PlotType', ~ismember('PlotType', usingDefaults), ...
                 'Dimension', ~ismember('Dimension', usingDefaults), ...
                 'Index', ~ismember('Index', usingDefaults), ...
+                'RetainedDimensions', ~ismember('RetainedDimensions', usingDefaults), ...
+                'ExtraIndices', ~ismember('ExtraIndices', usingDefaults), ...
                 'ColorLimits', ~ismember('ColorLimits', usingDefaults), ...
                 'NumIsosurfaces', ~ismember('NumIsosurfaces', usingDefaults), ...
                 'IsoRange', ~ismember('IsoRange', usingDefaults), ...
@@ -212,6 +217,20 @@ classdef Input
                 sourceType, matFile, memoryValue, memoryRootName);
             opts.PlotType = matfield.Input.normalizePlotType(opts.PlotType);
             opts.RequestedPlotType = opts.PlotType;
+            opts.RequestedDimension = opts.Dimension;
+            opts.RetainedDimensions = double(opts.RetainedDimensions(:).');
+            opts.ExtraIndices = double(opts.ExtraIndices);
+            if isempty(opts.ExtraIndices)
+                opts.ExtraIndices = zeros(0, 2);
+            end
+            if opts.Specified.RetainedDimensions && isempty(opts.RetainedDimensions)
+                error('visualizeMatField:InvalidSubspace', ...
+                    'Explicit RetainedDimensions must contain two or three dimensions.');
+            end
+            if any(ismember(opts.ExtraIndices(:, 1), opts.RetainedDimensions))
+                error('visualizeMatField:ExtraIndexOnRetainedDimension', ...
+                    'ExtraIndices can only fix dimensions outside RetainedDimensions.');
+            end
             opts.Colormap = char(opts.Colormap);
             opts.IsoRange = double(opts.IsoRange(:).');
             opts.IsoValues = unique(double(opts.IsoValues(:).'));
@@ -324,7 +343,7 @@ classdef Input
         function tf = isDimensionValue(value)
             tf = isempty(value) || ...
                 (isnumeric(value) && isscalar(value) && isfinite(value) && ...
-                 value == fix(value) && value >= 1 && value <= 3);
+                 value == fix(value) && value >= 1);
         end
 
         function tf = isIndexValue(value)

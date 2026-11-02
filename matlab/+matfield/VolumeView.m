@@ -65,8 +65,7 @@ classdef VolumeView
             variableLabel.Tooltip = matfield.Data.tooltip(opts.Source);
         
             globalLabel = uilabel(controls, ...
-                'Text', sprintf('全局 [min, max]：%s / %s', ...
-                matfield.Graphics.formatNumber(globalRange(1)), matfield.Graphics.formatNumber(globalRange(2))));
+                'Text', matfield.Subspace.globalRangeLabel(opts, globalRange));
             globalLabel.Layout.Row = 1;
             globalLabel.Layout.Column = [6, 9];
         
@@ -556,9 +555,10 @@ classdef VolumeView
                 camlight(state.Axes, 'headlight');
                 lighting(state.Axes, 'gouraud');
             end
-            xlabel(state.Axes, 'Dim 1 index');
-            ylabel(state.Axes, 'Dim 2 index');
-            zlabel(state.Axes, 'Dim 3 index');
+            originalDims = matfield.Subspace.axisDimensions(state.Options);
+            xlabel(state.Axes, sprintf('Dim %d index', originalDims(1)));
+            ylabel(state.Axes, sprintf('Dim %d index', originalDims(2)));
+            zlabel(state.Axes, sprintf('Dim %d index', originalDims(3)));
             if isscalar(levels)
                 titleText = sprintf('%s  |  isosurface = %s', ...
                     state.Variable, matfield.Graphics.formatNumber(levels));
@@ -579,6 +579,7 @@ classdef VolumeView
             fig.UserData = state;
             drawnow
             matfield.Graphics.refreshColorbarPresentation(state.Colorbar);
+            matfield.Layout.placeColorbar(fig);
         end
 
         function state = ensureVolumeInteractivity(state)

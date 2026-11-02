@@ -6,9 +6,11 @@ classdef Layout
                 'RootPanel', shell.RootPanel, ...
                 'MainGrid', shell.MainGrid, ...
                 'PlotGrid', shell.PlotGrid, ...
+                'PlotCanvas', shell.PlotCanvas, ...
                 'ControlPanel', shell.ControlPanel, ...
                 'ControlPanelRow', shell.ControlPanelRow, ...
                 'Source', shell.SourceLayout, ...
+                'Subspace', shell.SubspaceLayout, ...
                 'Control', controlLayout, ...
                 'PlotMode', plotMode, ...
                 'HasColorbar', shell.HasColorbar, ...
@@ -67,30 +69,51 @@ classdef Layout
                 preferredControlHeight = matfield.Layout.currentGridPanelHeight(layout.Control.Grid);
             end
         
-            if layout.HasColorbar
-                % The axes is still managed entirely by uigridlayout.  This stable
-                % gutter belongs to the plot region, so tick labels and the colorbar
-                % label cannot spill outside the figure when the window is resized.
-                layout.PlotGrid.Padding = [0, 0, 132, 26];
-            else
-                layout.PlotGrid.Padding = [0, 0, 0, 0];
-            end
+            layout.PlotGrid.Padding = [0, 0, 0, 0];
         
-            numberOfGaps = 1 + double(sourceHeight > 0);
-            minimumPlotHeight = 220 * double(layout.HasColorbar) + ...
+            subspaceHeight = matfield.Subspace.applyLayout(layout.Subspace, profile);
+            numberOfGaps = 1 + double(sourceHeight > 0) + double(subspaceHeight > 0);
+            minimumPlotHeight = 260 * double(layout.HasColorbar) + ...
                 120 * double(~layout.HasColorbar);
             availableForControls = figureSize(2) - 2 * outerPadding - ...
-                sourceHeight - minimumPlotHeight - numberOfGaps * layout.MainGrid.RowSpacing;
+                sourceHeight - subspaceHeight - minimumPlotHeight - numberOfGaps * layout.MainGrid.RowSpacing;
             controlHeight = min(preferredControlHeight, max(120, availableForControls));
+            heights = {};
             if sourceHeight > 0
-                layout.MainGrid.RowHeight = {sourceHeight, '1x', controlHeight};
-            else
-                layout.MainGrid.RowHeight = {'1x', controlHeight};
+                heights{end + 1} = sourceHeight;
             end
+            if subspaceHeight > 0
+                heights{end + 1} = subspaceHeight;
+            end
+            layout.MainGrid.RowHeight = [heights, {'1x', controlHeight}];
         
             layout.Profile = profile;
             state.Layout = layout;
             fig.UserData = state;
+            matfield.Layout.placeColorbar(fig, true);
+        end
+
+        function placeColorbar(fig, refreshLayout)
+            if ~isvalid(fig) || ~isfield(fig.UserData, 'Colorbar') || ...
+                    ~matfield.Graphics.hasGraphics(fig.UserData.Colorbar)
+                return
+            end
+            state = fig.UserData;
+            % Colorbar's automatic position follows axis('image')'s shrunken box.
+            % Own its position in the plot-region gutter instead of that box.
+            if nargin > 1 && refreshLayout
+                drawnow nocallbacks
+            end
+            bounds = getpixelposition(state.Layout.PlotCanvas);
+            cb = state.Colorbar;
+            state.Axes.Units = 'pixels';
+            state.Axes.PositionConstraint = 'outerposition';
+            state.Axes.OuterPosition = [1, 28, max(80, bounds(3) - 132), max(80, bounds(4) - 58)];
+            cb.Units = 'pixels';
+            cb.Position = [max(8, bounds(3) - 110), 36, 18, max(40, bounds(4) - 70)];
+            count = max(2, min(7, floor((bounds(4) - 70) / 40)));
+            cb.Ticks = linspace(state.Axes.CLim(1), state.Axes.CLim(2), count);
+            matfield.Graphics.refreshColorbarPresentation(cb);
         end
 
         function height = applySourceSelectorLayout(layout, profile)

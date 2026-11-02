@@ -8,7 +8,7 @@ classdef WorkspaceSource
                 item = topInfo(rootIndex);
                 if matfield.FieldRules.isNumericClassName(item.class)
                     isComplex = isfield(item, 'complex') && item.complex;
-                    dimension = matfield.FieldRules.classifyShape(item.size);
+                    dimension = matfield.FieldRules.classifySourceShape(item.size);
                     if ~isComplex && dimension > 0
                         targetInfo(end + 1) = matfield.FieldRules.makeInfo( ...
                             item.name, item.size, dimension); %#ok<AGROW>
@@ -34,7 +34,7 @@ classdef WorkspaceSource
             value = evalin('base', rootName);
             value = matfield.FieldRules.traverse(value, parts, 2, rootName);
             canonicalPath = strjoin(parts, '.');
-            fieldDimension = matfield.FieldRules.requireTargetArray( ...
+            fieldDimension = matfield.FieldRules.requireSourceArray( ...
                 value, canonicalPath);
         end
     end

@@ -1,7 +1,7 @@
 from collections.abc import Mapping
 import numpy as np
 
-from ..core import ArrayHandle, Target, field_shape
+from ..core import ArrayHandle, Target, source_shape
 from .base import DataSource, join_key
 
 
@@ -25,7 +25,7 @@ def as_array(value):
 
 def array_metadata(value):
     if isinstance(value, np.ndarray):
-        return field_shape(value.shape, value.dtype), str(value.dtype)
+        return source_shape(value.shape, value.dtype), str(value.dtype)
     if is_tensor(value):
         import torch
         dtypes = {torch.float32: "float32", torch.float64: "float64", torch.float16: "float16",
@@ -33,7 +33,7 @@ def array_metadata(value):
                   torch.int16: "int16", torch.int32: "int32", torch.int64: "int64"}
         dtype = dtypes.get(value.dtype)
         if dtype and value.layout == torch.strided and not value.is_quantized:
-            return field_shape(value.shape, dtype), dtype
+            return source_shape(value.shape, dtype), dtype
     return None, ""
 
 

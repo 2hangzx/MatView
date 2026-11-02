@@ -4,7 +4,7 @@ classdef MemorySource
         function targetInfo = listTargets(rootValue, rootName, opts)
             targetInfo = matfield.FieldRules.emptyInfo();
             if isnumeric(rootValue)
-                dimension = matfield.FieldRules.classifyArray(rootValue);
+                dimension = matfield.FieldRules.classifySourceArray(rootValue);
                 if dimension > 0
                     targetInfo = matfield.FieldRules.makeInfo( ...
                         rootName, size(rootValue), dimension);
@@ -39,7 +39,7 @@ classdef MemorySource
                 value = matfield.FieldRules.traverse( ...
                     rootValue, parts, startIndex, rootName);
             end
-            fieldDimension = matfield.FieldRules.requireTargetArray( ...
+            fieldDimension = matfield.FieldRules.requireSourceArray( ...
                 value, canonicalPath);
         end
     end

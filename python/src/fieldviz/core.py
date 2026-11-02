@@ -17,16 +17,34 @@ def field_shape(shape, dtype):
     return shape
 
 
+def source_shape(shape, dtype):
+    """Accept renderable fields or N-D containers with a selectable 2-D/3-D field."""
+    shape = tuple(int(n) for n in shape)
+    while len(shape) > 2 and shape[-1] == 1:
+        shape = shape[:-1]
+    if field_shape(shape, dtype):
+        return shape
+    if (np.dtype(dtype).kind in "iuf" and len(shape) >= 4 and min(shape) > 0
+            and sum(n > 1 for n in shape) >= 2):
+        return shape
+    return None
+
+
 @dataclass(frozen=True)
 class Target:
     key: str
     shape: tuple
     dtype: str
     source_type: str
+    dimensions: tuple = ()
 
     @property
     def ndim(self):
         return len(self.shape)
+
+    @property
+    def axes(self):
+        return self.dimensions or tuple(range(1, self.ndim + 1))
 
 
 class ArrayHandle:
@@ -39,9 +57,9 @@ class ArrayHandle:
 
     @classmethod
     def from_array(cls, key, array, source_type="memory", copy=True):
-        shape = field_shape(array.shape, array.dtype)
+        shape = source_shape(array.shape, array.dtype)
         if shape is None:
-            raise ValueError("目标必须是各有效维度长度大于 1 的实数二维/三维数组。")
+            raise ValueError("目标必须为可提取二维/三维子数组的实数数组。")
         value = np.array(array, copy=True) if copy else np.asarray(array)
         value = value.reshape(shape)
         if copy:
@@ -99,6 +117,8 @@ def display_range(bounds):
 
 @dataclass(frozen=True)
 class Options:
+    retained_dimensions: tuple | None = None
+    extra_indices: object = None
     mode: str | None = None
     dimension: int | None = None
     index: int | None = None
@@ -111,12 +131,16 @@ class Options:
     colormap: str = "turbo"
 
     def __post_init__(self):
+        from .subspace import validate_parameters
+        dimensions, indices = validate_parameters(self.retained_dimensions, self.extra_indices)
+        object.__setattr__(self, "retained_dimensions", dimensions)
+        object.__setattr__(self, "extra_indices", indices)
         if self.mode == "volume":
             # MATLAB's historical volume means isosurfaces, never silently a new renderer.
             object.__setattr__(self, "mode", "isosurface")
         if self.mode not in (None, "slice", "isosurface"):
             raise ValueError("mode 必须为 slice 或 isosurface（volume 是兼容别名）。")
-        for name, minimum, maximum in (("dimension", 1, 3), ("index", 1, None),
+        for name, minimum, maximum in (("dimension", 1, None), ("index", 1, None),
                                        ("num_isosurfaces", 1, 12), ("max_render_size", 16, None)):
             value = getattr(self, name)
             if value is not None and (isinstance(value, bool) or not isinstance(value, numbers.Integral)
@@ -155,19 +179,33 @@ class Options:
                 object.__setattr__(self, "color_limits", pair)
 
     def accepts(self, target):
-        return target.ndim == 3 or (self.mode != "isosurface" and self.dimension is None)
+        from .subspace import selection_for
+        try:
+            dimensions, _ = selection_for(target, self.retained_dimensions, self.extra_indices)
+        except ValueError:
+            return False
+        return ((len(dimensions) == 3 or (self.mode != "isosurface" and self.dimension is None))
+                and (self.dimension is None or self.dimension in dimensions))
 
 
 class ViewState:
     """Selected field and interactive values; explicit options stay locked in the UI."""
 
-    def __init__(self, handle, options):
-        if not options.accepts(handle.target):
+    def __init__(self, handle, options, *, retained_dimensions=None, extra_indices=None):
+        from .subspace import selection_for, project
+        self.source_handle = handle
+        self.retained_dimensions, self.extra_indices = selection_for(
+            handle.target,
+            options.retained_dimensions if retained_dimensions is None else retained_dimensions,
+            options.extra_indices if extra_indices is None else extra_indices)
+        handle = project(handle, self.retained_dimensions, self.extra_indices)
+        if ((handle.target.ndim == 2 and (options.mode == "isosurface" or options.dimension is not None))
+                or (options.dimension is not None and options.dimension not in handle.target.axes)):
             raise ValueError("目标维数与显式绘图参数不兼容。")
         self.handle = handle
         self.bounds = handle.finite_range()
         self.mode = "slice" if handle.target.ndim == 2 else (options.mode or "isosurface")
-        self.dimension = options.dimension or 3
+        self.dimension = handle.target.axes.index(options.dimension) + 1 if options.dimension else 3
         length = handle.target.shape[self.dimension - 1] if handle.target.ndim == 3 else 1
         self.index = options.index if options.index is not None else (length + 1) // 2
         if self.index > length:
@@ -184,6 +222,18 @@ class ViewState:
         self.fractions = options.iso_range or (0.15, 0.85)
         self.exact = sum(self.bounds) / 2
         self.alpha = options.surface_alpha if options.surface_alpha is not None else 0.22
+
+    def reselect(self, options, dimensions, indices):
+        next_state = ViewState(self.source_handle, options, retained_dimensions=dimensions, extra_indices=indices)
+        if dimensions == self.retained_dimensions:
+            next_state.mode, next_state.dimension, next_state.index = self.mode, self.dimension, self.index
+            next_state.iso_mode, next_state.count = self.iso_mode, self.count
+            next_state.fractions, next_state.alpha = self.fractions, self.alpha
+            next_state.exact = min(next_state.bounds[1], max(next_state.bounds[0], self.exact))
+            next_state.color_mode = self.color_mode
+            if self.color_mode == "custom":
+                next_state.color_bounds = self.color_bounds
+        return next_state
 
     def levels(self):
         if self.iso_mode == "explicit":

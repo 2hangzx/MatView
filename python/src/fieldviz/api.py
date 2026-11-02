@@ -12,7 +12,7 @@ _windows = set()
 def visualize_field(source=None, *, field=None, namespace=None, mode=None, dimension=None,
                     index=None, color_limits=None, iso_values=None, num_isosurfaces=None,
                     iso_range=None, surface_alpha=None, max_render_size=None,
-                    colormap="turbo", show=True):
+                    colormap="turbo", show=True, retained_dimensions=None, extra_indices=None):
     """Create a nonblocking viewer and return its window.
 
     ``source`` is a file path, ndarray, dense Tensor, nested dict or DataSource.
@@ -21,6 +21,8 @@ def visualize_field(source=None, *, field=None, namespace=None, mode=None, dimen
     Dimensions and slice indices are **1-based** to match the MATLAB viewer.
     Missing source/field opens a blank selector. Missing options enable the
     relevant UI controls. Use ``run()`` in a standalone script to run Qt.
+    N-D arrays select a 2-D/3-D subarray via ``retained_dimensions`` and
+    ``extra_indices={original_dimension: one_based_index}`` before plotting.
     """
     global _application
     if current_thread() is not main_thread():
@@ -29,7 +31,8 @@ def visualize_field(source=None, *, field=None, namespace=None, mode=None, dimen
         raise ValueError("field 必须为非空变量路径字符串。")
     if field is not None and source is None and namespace is None:
         raise ValueError("显式 field 需要同时指定 source 或 namespace。")
-    options = Options(mode=mode, dimension=dimension, index=index, color_limits=color_limits,
+    options = Options(retained_dimensions=retained_dimensions, extra_indices=extra_indices,
+                      mode=mode, dimension=dimension, index=index, color_limits=color_limits,
                       iso_values=iso_values, num_isosurfaces=num_isosurfaces, iso_range=iso_range,
                       surface_alpha=surface_alpha, max_render_size=max_render_size, colormap=colormap)
     from matplotlib import colormaps
@@ -39,7 +42,7 @@ def visualize_field(source=None, *, field=None, namespace=None, mode=None, dimen
     if resolved and not any(options.accepts(t) for t in resolved.list_targets()):
         # An empty namespace may be populated and refreshed after the viewer opens.
         if resolved.kind != "namespace":
-            raise ValueError("来源中没有与当前参数兼容的实数二维/三维数组。")
+            raise ValueError("来源中没有与当前参数兼容的实数数组或二维/三维子数组。")
     initial_state = None
     if resolved and (field is not None or resolved.automatic_target):
         key = field if field is not None else resolved.list_targets()[0].key

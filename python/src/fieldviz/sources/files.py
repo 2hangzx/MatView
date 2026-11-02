@@ -6,7 +6,7 @@ import warnings
 import h5py
 import numpy as np
 
-from ..core import ArrayHandle, Target, field_shape
+from ..core import ArrayHandle, Target, source_shape
 from .base import FileSource, join_key
 
 
@@ -20,7 +20,7 @@ class NumpySource(FileSource):
         self._targets = {}
         if self.automatic_target:
             value = np.load(self.path, mmap_mode="r", allow_pickle=False)
-            shape = field_shape(value.shape, value.dtype)
+            shape = source_shape(value.shape, value.dtype)
             if shape:
                 self._targets["array"] = Target("array", shape, str(value.dtype), self.kind)
             del value
@@ -38,7 +38,7 @@ class NumpySource(FileSource):
                             shape, _, dtype = np.lib.format.read_array_header_2_0(stream)
                         else:
                             raise ValueError("暂不支持该 NPZ 内部 NPY 版本。")
-                    effective = field_shape(shape, dtype)
+                    effective = source_shape(shape, dtype)
                     if effective:
                         key = item.filename[:-4]
                         self._targets[key] = Target(key, effective, str(dtype), self.kind)
@@ -105,7 +105,7 @@ class Hdf5Source(FileSource):
             if self.matlab and (node.attrs.get("MATLAB_empty", 0) or
                                 matlab_class in (b"char", b"logical")):
                 return
-            effective = field_shape(raw_shape, node.dtype)
+            effective = source_shape(raw_shape, node.dtype)
             if effective:
                 self._targets[key] = (Target(key, effective, str(node.dtype), self.kind),
                                       node.name, raw_shape)
@@ -141,7 +141,7 @@ class ClassicMatSource(FileSource):
 
         def collect(value, key, root, fields):
             if isinstance(value, np.ndarray) and value.dtype.kind in "iuf":
-                shape = field_shape(value.shape, value.dtype)
+                shape = source_shape(value.shape, value.dtype)
                 if shape:
                     self._targets[key] = (Target(key, shape, str(value.dtype), self.kind), root, fields)
             elif isinstance(value, np.ndarray) and value.size == 1 and value.dtype.kind == "O":

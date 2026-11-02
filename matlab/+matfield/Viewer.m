@@ -229,20 +229,25 @@ classdef Viewer
             rootPanel = uipanel(fig, 'BorderType', 'none', ...
                 'BackgroundColor', fig.Color, ...
                 'Position', [1, 1, fig.Position(3), fig.Position(4)]);
+            showSubspace = isfield(opts, 'Subspace');
+            plotRow = 1 + double(showSourceControl) + double(showSubspace);
+            controlRow = plotRow + 1;
+            mainGrid = uigridlayout(rootPanel, [controlRow, 1]);
+            heights = {};
             if showSourceControl
-                mainGrid = uigridlayout(rootPanel, [3, 1]);
-                mainGrid.RowHeight = {matfield.Viewer.sourceSelectorHeight(opts), '1x', controlPanelHeight};
-                plotRow = 2;
-                controlRow = 3;
+                heights = {matfield.Viewer.sourceSelectorHeight(opts)};
                 sourceLayout = matfield.Viewer.addSourceSelector( ...
                     mainGrid, opts, currentVariable);
             else
-                mainGrid = uigridlayout(rootPanel, [2, 1]);
-                mainGrid.RowHeight = {'1x', controlPanelHeight};
-                plotRow = 1;
-                controlRow = 2;
                 sourceLayout = matfield.Viewer.emptySourceLayout();
             end
+            subspaceLayout = matfield.Subspace.emptyLayout();
+            if showSubspace
+                subspaceLayout = matfield.Subspace.createControls( ...
+                    mainGrid, 1 + double(showSourceControl), opts);
+                heights{end + 1} = 160;
+            end
+            mainGrid.RowHeight = [heights, {'1x', controlPanelHeight}];
             mainGrid.Padding = [18, 18, 18, 18];
             mainGrid.RowSpacing = 8;
         
@@ -250,12 +255,11 @@ classdef Viewer
             plotGrid.Layout.Row = plotRow;
             plotGrid.RowSpacing = 0;
             plotGrid.ColumnSpacing = 0;
-            if showColorbar
-                plotGrid.Padding = [0, 0, 132, 26];
-            else
-                plotGrid.Padding = [0, 0, 0, 0];
-            end
-            ax = uiaxes(plotGrid);
+            plotGrid.Padding = [0, 0, 0, 0];
+            plotCanvas = uipanel(plotGrid, 'BorderType', 'none', 'BackgroundColor', fig.Color);
+            plotCanvas.AutoResizeChildren = 'off';
+            plotCanvas.SizeChangedFcn = @(~, ~) matfield.Layout.placeColorbar(fig);
+            ax = uiaxes(plotCanvas);
             ax.Box = 'on';
             ax.FontName = 'Consolas';
             ax.FontSize = 12;
@@ -277,11 +281,13 @@ classdef Viewer
                 'RootPanel', rootPanel, ...
                 'MainGrid', mainGrid, ...
                 'PlotGrid', plotGrid, ...
+                'PlotCanvas', plotCanvas, ...
                 'Axes', ax, ...
                 'Colorbar', cb, ...
                 'ControlPanel', controlPanel, ...
                 'ControlPanelRow', controlRow, ...
                 'SourceLayout', sourceLayout, ...
+                'SubspaceLayout', subspaceLayout, ...
                 'SourceTypeDropDown', sourceLayout.SourceTypeDropDown, ...
                 'FilePathEdit', sourceLayout.FilePathEdit, ...
                 'BrowseButton', sourceLayout.BrowseButton, ...
@@ -291,6 +297,7 @@ classdef Viewer
         end
 
         function wireSourceCallbacks(fig, shell)
+            matfield.Subspace.wire(fig, shell.SubspaceLayout);
             if matfield.Graphics.hasGraphics(shell.SourceTypeDropDown)
                 shell.SourceTypeDropDown.ValueChangedFcn = ...
                     @(source, event) matfield.Viewer.onSourceTypeChanged( ...
@@ -329,7 +336,7 @@ classdef Viewer
                 field = fields{fieldIndex};
                 opts.(field) = defaults.(field);
             end
-            runtimeFields = {'RuntimeIsoSelectionMode', 'RuntimeExactIsoValue'};
+            runtimeFields = {'RuntimeIsoSelectionMode', 'RuntimeExactIsoValue', 'Subspace', 'AxesDimensions'};
             for fieldIndex = 1:numel(runtimeFields)
                 field = runtimeFields{fieldIndex};
                 if isfield(opts, field)
@@ -628,7 +635,7 @@ classdef Viewer
             fig.Pointer = 'watch';
             drawnow
             try
-                [fieldData, opts.Source, fieldDimension, canonicalPath] = ...
+                [fieldData, opts.Source, ~, canonicalPath] = ...
                     matfield.Data.loadTarget(opts.Source, selectedVariable);
                 opts.Variable = canonicalPath;
                 if strcmp(opts.Source.Type, 'matfile')
@@ -636,12 +643,14 @@ classdef Viewer
                 else
                     opts.MatFile = '';
                 end
-                opts.FieldDimension = fieldDimension;
-                opts.PlotType = matfield.Data.resolvePlotTypeForField(opts, fieldDimension);
-                if fieldDimension == 3
-                    opts.Dimension = matfield.Input.normalizeDimension(opts.Dimension);
+                if forceReload && isfield(opts, 'Subspace') && ndims(fieldData) > 3
+                    selection = opts.Subspace;
+                    [fieldData, opts, globalRange] = matfield.Subspace.prepare(fieldData, opts, ...
+                        selection.RetainedDimensions, selection.ExtraIndices);
+                else
+                    [fieldData, opts, globalRange] = matfield.Subspace.prepare(fieldData, opts);
                 end
-                globalRange = matfield.Data.validateLoadedArray(fieldData, opts);
+                fieldDimension = opts.FieldDimension;
         
                 if strcmp(opts.PlotType, 'slice') && fieldDimension == 3
                     if opts.Specified.Index

@@ -10,7 +10,8 @@ from fieldviz import visualize_field
 def wait(window):
     deadline = time.monotonic() + 60
     app = QApplication.instance()
-    while window.render_timer.isActive() or window.render_job.busy or window.load_job.busy:
+    while (window.render_timer.isActive() or window.render_job.busy or window.load_job.busy
+           or window.subspace_timer.isActive() or window._subspace_busy):
         app.processEvents()
         if time.monotonic() > deadline:
             raise TimeoutError("Rendering timed out")

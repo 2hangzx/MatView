@@ -4,6 +4,7 @@
 时直接传入的数组/标量结构体。无参数调用时可以在窗口内选择 MAT 文件或工作区；脚本会
 递归发现顶层或嵌套标量 structure 中符合规则的数组。三维变量未指定绘图模式时默认使用
 多等值面，二维变量自动使用 Slice。
+四维及以上的实数数值数组可先选择保留的二维/三维子数组，再进入上述绘图流程。
 
 实现已拆分到 `+matfield` 包；脚本职责、运行流程和模块依赖见
 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
@@ -16,7 +17,8 @@
 - 实数数值三维数组 `[num_x, num_y, num_z]`：支持 Slice 和 Volume。
 - `[num_x, num_y, 1]` 的尾部单例维在 MATLAB 中会被折叠，按二维矩阵处理，仅支持 Slice。
 
-向量、标量、四维及更高维数组、复数、logical、char/string、cell、table 和非标量
+四维及更高维实数数组作为“子数组来源”列入目标列表，至少需要两个长度大于 1 的维度。
+向量、标量、空数组、稀疏数组、复数、logical、char/string、cell、table 和非标量
 structure 都不会进入目标变量下拉列表。二维与三维目标的各个有效轴长度必须大于 1。
 变量路径既可以是顶层名称（如 `top2`），也可以是任意深度的点分路径（如
 `caseA.flow.temperature`）。
@@ -75,6 +77,56 @@ visualizeMatField(matFile, 'T.gradNorm_XYZ', 'PlotType', '3d', ...
 visualizeMatField(matFile, 'T.T_XYZ', ...
     'PlotType', 'figure', 'Dimension', 3, 'Index', 80)
 ```
+
+## 高维数组：额外维度选择
+
+例如 `A` 的大小为 `[161,161,159,3]`：
+
+```matlab
+visualizeMatField(A)
+% 或从 MAT 文件加载同样的数组
+visualizeMatField('prediction.mat', 'A')
+```
+
+默认保留最靠前的三个长度大于 1 的维度（只有两个时保留两个），其他维度索引默认 1。
+窗口新增“额外维度选择”区域，显示原始形状、保留维度和每个额外维度的当前索引。
+对上述 `A`，Dim 4 提供索引输入框及滑条，可切换 1/2/3；改动自动更新图像、当前子数组的全局 min/max 和颜色栏。
+切换索引会暂停播放；保留维度不变时复用坐标区和现有绘图设置，保持三维观察视角。
+滑动时节流更新，松手后保证绘制最终索引，不需要“重新绘图”按钮。
+
+“保留维度”输入框使用逗号分隔的递增编号，例如 `1, 2, 3`、`1, 3, 4` 或 `2, 4`。
+保留两个维度时只能使用二维 Slice；保留三个维度时支持三维切片和等值面。
+长度为 1 的额外维度固定在索引 1；保留维度的长度必须大于 1。
+坐标标签继续对应**原数组**的 Dim 编号：例如保留 `[1,3,4]` 时不会重新命名为 Dim 1/2/3。
+不推断最后一维是 RGB、通道、时间还是其他物理量。
+
+也可以从命令行精确指定：
+
+```matlab
+% 第4维的第2项，固定此次选择
+visualizeMatField(A, 'RetainedDimensions', [1,2,3], 'ExtraIndices', [4,2])
+
+% ExtraIndices 每行是 [原数组维度编号, 索引]，适用于多个额外维度
+visualizeMatField(B, 'RetainedDimensions', [1,2,3], 'ExtraIndices', [4,2; 5,3])
+
+% 保留原数组第1/3/4维，沿原第4维取第2个切片
+visualizeMatField(A, 'RetainedDimensions', [1,3,4], 'ExtraIndices', [2,1], ...
+    'PlotType', 'slice', 'Dimension', 4, 'Index', 2)
+
+% 直接二维子数组，只提供二维显示及颜色栏等相关控制
+visualizeMatField(A, 'RetainedDimensions', [2,4])
+```
+
+`RetainedDimensions` 与 `ExtraIndices` 均只使用 Name-Value 传值，不要求预先指定 `PlotType`。
+维度编号和索引均从 1 开始。显式指定的保留维度不允许在窗口修改；`ExtraIndices` 只固定其中指定的维度，未指定的额外维度仍可调整。
+`Dimension/Index` 保持原有依赖：显式 `PlotType='slice'`，且 `Index` 需要显式 `Dimension`。
+二维/三维普通输入仍走原流程；这两个参数不用于重排普通数组。
+非法、越界或全非有限值的子数组选择会回退至上一合法选择；可见窗口给出错误信息。
+
+MAT、直接内存数组/嵌套标量结构体、Base Workspace 均支持此功能。
+工作区刷新时重新读取源变量并保留仍合法的额外索引；MATLAB 版仍使用原有 MAT 顶层变量加载方式，
+不承诺对任意嵌套 MAT 字段进行磁盘惰性读取。切换分量复用已经载入的原始数组，不更改来源数据或类型。
+MATLAB 版的文件入口仍为 MAT 文件；Python 的 `.npy/.pt` 文件支持不属于此次 MATLAB 升级。
 
 ## 传参规范
 
@@ -137,7 +189,7 @@ visualizeMatField('PlotType', 'slice', 'Dimension', 2)
 - 更换目标变量同样立即更新，不需要“重新绘图”按钮。
 - 在 Slice 模式更换不同尺寸的数组时，尽量保持原切片在所选维度中的相对位置。
 - 命令行已明确指定变量时不显示变量下拉框，界面与原调用方式一致。
-- 下拉框只列出符合“实数数值二维/三维数组”规则的目标，并显示数组尺寸与维数。
+- 下拉框列出符合二维/三维规则的目标及可提取子数组的高维实数来源，并显示原数组尺寸与维数。
 - 对 v7.3 MAT 文件，变量列表递归读取 HDF5 元数据，不会为了生成下拉列表预先加载
   全部数组；对早期 MAT 格式，顶层数值数组使用 `whos` 元数据判断，只有标量 structure
   会按顶层变量逐个加载并递归检查。
@@ -178,8 +230,8 @@ visualizeMatField('PlotType', 'slice', 'Dimension', 2)
 - 二维目标直接显示完整矩阵，不提供切片维度、索引或索引自动播放控件，也不允许切换
   到 Volume。
 - 三维目标才使用以下维度、索引和自动播放逻辑。
-- `Dimension` 只接受数值 `1`、`2` 或 `3`，分别表示 MATLAB 数组的第一、第二或第三维。
-- 未在命令行指定 `Dimension` 时才显示 `Dim 1/Dim 2/Dim 3` 维度下拉框。
+- 普通三维数组的 `Dimension` 接受数值 `1`、`2` 或 `3`；高维来源接受三个保留维度中的原数组编号。
+- 未在命令行指定 `Dimension` 时才显示维度下拉框，标签对应保留的原始 Dim 编号。
 - 未在命令行指定 `Index` 时才显示索引滑块和数值输入框，初值为该维度中点。
 - 索引控件出现时同时提供自动播放：从当前索引逐帧递增，到该维末尾后从 1 循环；
   播放间隔可以直接设置。
@@ -252,7 +304,8 @@ Volume 绘图区会为标题、三维坐标框和刻度预留边距，初始视�
 1. 数据源决定目标来自 MAT 文件、Base Workspace 或直接内存值；未指定时在窗口中选择。
 2. 目标变量依赖有效数据源；直接数值数组自身就是目标，MAT、Workspace 和内存结构体
    可以通过字段路径或变量下拉框进一步选择。
-3. `PlotType` 依赖目标变量的维数：二维变量只能 Slice，三维变量可以 Slice 或 Volume。
+3. 高维来源先按 `RetainedDimensions/ExtraIndices` 提取子数组。`PlotType` 依赖最终子数组的维数：
+   二维只能 Slice，三维可以 Slice 或 Volume。
 4. `Dimension` 依赖显式的 Slice 模式；`Index` 进一步依赖显式的 `Dimension`。
 5. `NumIsosurfaces`、`IsoRange`、`IsoValues`、`SurfaceAlpha` 和 `MaxRenderSize` 依赖显式的
    Volume 模式；`IsoValues` 与自动多层的数量/范围参数互斥。
@@ -271,6 +324,14 @@ Volume 绘图区会为标题、三维坐标框和刻度预留边距，初始视�
 
 ## 维度约定
 
-脚本只使用 `Dim 1/2/3` 描述 MATLAB 数组的第一、第二和第三维，不推断这些维度的
+脚本使用 `Dim n` 描述原始 MATLAB 数组的第 n 维，不推断这些维度的
 坐标名称或物理含义。数据维度可以代表空间、时间或其他自变量，具体含义由用户依据
-数据来源判断。三维图的三个坐标轴严格对应数组的第一、第二和第三维。
+数据来源判断。普通三维图对应原数组第一、第二和第三维；高维子数组的坐标轴对应用户保留的原始维度。
+
+## 高维升级验证
+
+MATLAB R2026a 下运行 `runtests('tests')`：原有 16 项及新增 13 项测试共 29 项通过。
+新增覆盖 MAT v7/v7.3 嵌套字段、内存快照、工作区刷新、四/五维、单例维、原始维度标签、
+显式参数固定、切片/等值面切换、播放暂停、相机保持及无有限数值的选择回退。
+`tests/visualSubspaceSmoke.m` 导出宽/窄窗口截图，检查坐标区、颜色栏、额外维度区与可滚动控制台。
+运行前可执行 `addpath('tests'); visualSubspaceSmoke`；截图写入被忽略的 `artifacts/`。

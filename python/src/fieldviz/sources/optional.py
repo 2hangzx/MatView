@@ -1,7 +1,7 @@
 """Optional storage dependencies are imported only when their format is selected."""
 from pathlib import Path
 
-from ..core import ArrayHandle, Target, field_shape
+from ..core import ArrayHandle, Target, source_shape
 from .base import FileSource
 from .memory import MemorySource
 
@@ -31,16 +31,16 @@ class ZarrSource(FileSource):
         self.automatic_target = isinstance(self.root, zarr.Array)
         members = [("array", self.root)] if self.automatic_target else self.root.members(max_depth=None)
         self._arrays = {name: item for name, item in members if isinstance(item, zarr.Array)
-                        and field_shape(item.shape, item.dtype)}
+                        and source_shape(item.shape, item.dtype)}
 
     def list_targets(self):
-        return [Target(key, field_shape(a.shape, a.dtype), str(a.dtype), self.kind)
+        return [Target(key, source_shape(a.shape, a.dtype), str(a.dtype), self.kind)
                 for key, a in sorted(self._arrays.items())]
 
     def open_target(self, key):
         key = self.resolve_key(key)
         array = self._arrays[key]
-        target = Target(key, field_shape(array.shape, array.dtype), str(array.dtype), self.kind)
+        target = Target(key, source_shape(array.shape, array.dtype), str(array.dtype), self.kind)
         return ArrayHandle(target, lambda s: array[s + (0,) * (array.ndim - len(s))])
 
 
@@ -61,7 +61,7 @@ class SafetensorsSource(FileSource):
             for name in file.keys():
                 view = file.get_slice(name)
                 dtype = dtype_names.get(view.get_dtype())
-                shape = field_shape(view.get_shape(), dtype) if dtype else None
+                shape = source_shape(view.get_shape(), dtype) if dtype else None
                 if shape:
                     self._targets[name] = Target(name, shape, dtype, self.kind)
 
