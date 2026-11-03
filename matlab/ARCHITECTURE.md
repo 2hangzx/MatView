@@ -17,6 +17,7 @@ SwirlFlame/matlab/
 │  ├─ Data.m                    三种数据源的统一调度接口
 │  ├─ FieldRules.m              目标数组分类、嵌套遍历和公共数值校验
 │  ├─ Subspace.m                高维选择规则、额外维度控件、子数组提取与更新
+│  ├─ Palette.m                 共享色图选择、校验及已有表面换色
 │  ├─ MatSource.m               MAT 路径解析、变量发现和按目标加载
 │  ├─ WorkspaceSource.m         Base Workspace 枚举、读取和刷新
 │  ├─ MemorySource.m            直接数组/标量结构体的快照发现和读取
@@ -30,7 +31,9 @@ SwirlFlame/matlab/
 ├─ tests/
 │  ├─ testVisualizeMatField.m   公共流程回归测试
 │  ├─ testSubspace.m            高维来源、索引/模式/布局和错误恢复测试
-│  └─ visualSubspaceSmoke.m     高维窗口截图检查（输出到 artifacts/）
+│  ├─ testColormap.m            共享色图与局部换色回归测试
+│  ├─ visualSubspaceSmoke.m     高维窗口截图检查（输出到 artifacts/）
+│  └─ visualColormapSmoke.m     jet/hot 与窄窗口色图截图检查
 ├─ demoVisualizeMatField.m      常用调用示例
 └─ VISUALIZATION.md             面向使用者的参数与交互说明
 ```
@@ -140,3 +143,10 @@ assertSuccess(results)
 来源或变量改变时重新校验子数组；不在 UI 回调中访问最初调用者的局部 workspace。
 绘图区使用由网格管理的 `PlotCanvas`，内部坐标区与颜色栏各自有明确位置与留白。
 画布关闭自动缩放子组件，通过尺寸回调统一定位，避免 MATLAB 对 image 方形坐标区的自动调整挤压颜色栏。
+
+色图控制是 Slice/Volume 共用的控制台头部，`Palette` 创建并接线，`Options.Colormap` 保存当前名称。
+`Specified.Colormap` 决定是否显示选择器。`VolumeView` 给每个 patch 标记其等值面数值，
+`Palette.change` 按当前 CLim 重设这些 patch 的 RGB；不重建 patch、不触发 isosurface。
+控制台的 `ControlsParent` 承载模式专属控件；`Layout` 为共享色图头部预留高度，窄窗口仍可滚动。
+颜色栏由独立的 `ColorbarPanel/ColorbarAxes` 承载，`Graphics.synchronizeColorbar` 同步主坐标区的 CLim 与色图；
+显示用坐标区不承载场数据。`Layout` 按格式化刻度标签长度为其预留宽度，避免 image 的等比例布局在换色/缩窗后把颜色栏拉回图像旁边。

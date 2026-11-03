@@ -8,7 +8,7 @@ visualize_field(
     mode=None, dimension=None, index=None,
     color_limits=None, iso_values=None, num_isosurfaces=None,
     iso_range=None, surface_alpha=None, max_render_size=None,
-    colormap="turbo", show=True,
+    colormap=None, show=True,
     retained_dimensions=None, extra_indices=None,
 )
 ```
@@ -131,7 +131,10 @@ levels = linspace(start, end, count)
 
 ## 通用参数与错误
 
-`colormap` 为 Matplotlib 注册颜色映射名，默认 `turbo`；`show` 默认 `True`。
+`colormap` 为 Matplotlib 注册色图名，例如 `jet`、`hot`、`turbo`、`viridis` 或 `hot_r`。
+默认参数 `None` 表示使用 `turbo` 并允许 GUI 下拉框修改；显式指定任意名称（包括 `"turbo"`）时固定色图、隐藏选择器。
+Slice 与 Isosurface 均支持，不要求显式 `mode`。图像、表面和颜色栏同步换色，不改变数值范围、几何或视角。
+`show` 默认 `True`。
 API 的非法调用抛出明确异常；CLI 转为用法错误；运行中的文件/计算错误显示在窗口底部，悬停可读完整信息。
 新数据不兼容固定参数时明确报错，不偷偷改写用户参数。
 

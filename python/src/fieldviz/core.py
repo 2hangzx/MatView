@@ -1,5 +1,5 @@
 """Pure data contracts shared by every source and renderer; no Qt dependency."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 import numbers
 from typing import Callable
@@ -128,9 +128,15 @@ class Options:
     iso_range: tuple | None = None
     surface_alpha: float | None = None
     max_render_size: int | None = None
-    colormap: str = "turbo"
+    colormap: str | None = None
+    colormap_specified: bool = field(init=False)
 
     def __post_init__(self):
+        object.__setattr__(self, "colormap_specified", self.colormap is not None)
+        if self.colormap is None:
+            object.__setattr__(self, "colormap", "turbo")
+        elif not isinstance(self.colormap, str) or not self.colormap:
+            raise ValueError("colormap 必须为非空色图名称。")
         from .subspace import validate_parameters
         dimensions, indices = validate_parameters(self.retained_dimensions, self.extra_indices)
         object.__setattr__(self, "retained_dimensions", dimensions)

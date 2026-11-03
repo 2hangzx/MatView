@@ -32,6 +32,9 @@ class SliceView(pg.PlotWidget):
     def reset_view(self):
         self.getViewBox().autoRange()
 
+    def set_colormap(self, colors):
+        self.image.setLookupTable(np.asarray(colors, dtype=np.uint8))
+
 
 class IsosurfaceView(QWidget):
     def __init__(self, colormap):
@@ -89,6 +92,12 @@ class IsosurfaceView(QWidget):
     def set_alpha(self, value):
         if self.actor is not None:
             self.actor.prop.opacity = value
+            self.plotter.render()
+
+    def set_colormap(self, name):
+        self.colormap = name
+        if self.actor is not None:
+            self.actor.mapper.lookup_table.apply_cmap(name)
             self.plotter.render()
 
     def reset_view(self):

@@ -7,10 +7,13 @@ classdef Layout
                 'MainGrid', shell.MainGrid, ...
                 'PlotGrid', shell.PlotGrid, ...
                 'PlotCanvas', shell.PlotCanvas, ...
+                'ColorbarPanel', shell.ColorbarPanel, ...
+                'ColorbarAxes', shell.ColorbarAxes, ...
                 'ControlPanel', shell.ControlPanel, ...
                 'ControlPanelRow', shell.ControlPanelRow, ...
                 'Source', shell.SourceLayout, ...
                 'Subspace', shell.SubspaceLayout, ...
+                'Palette', shell.PaletteLayout, ...
                 'Control', controlLayout, ...
                 'PlotMode', plotMode, ...
                 'HasColorbar', shell.HasColorbar, ...
@@ -69,6 +72,7 @@ classdef Layout
                 preferredControlHeight = matfield.Layout.currentGridPanelHeight(layout.Control.Grid);
             end
         
+            preferredControlHeight = preferredControlHeight + layout.Palette.Height;
             layout.PlotGrid.Padding = [0, 0, 0, 0];
         
             subspaceHeight = matfield.Subspace.applyLayout(layout.Subspace, profile);
@@ -106,14 +110,21 @@ classdef Layout
             end
             bounds = getpixelposition(state.Layout.PlotCanvas);
             cb = state.Colorbar;
-            state.Axes.Units = 'pixels';
-            state.Axes.PositionConstraint = 'outerposition';
-            state.Axes.OuterPosition = [1, 28, max(80, bounds(3) - 132), max(80, bounds(4) - 58)];
-            cb.Units = 'pixels';
-            cb.Position = [max(8, bounds(3) - 110), 36, 18, max(40, bounds(4) - 70)];
+            matfield.Graphics.synchronizeColorbar(fig);
             count = max(2, min(7, floor((bounds(4) - 70) / 40)));
             cb.Ticks = linspace(state.Axes.CLim(1), state.Axes.CLim(2), count);
             matfield.Graphics.refreshColorbarPresentation(cb);
+            % Reserve the labels' actual formatted length, including small values
+            % whose fixed-point representation is longer than their precision.
+            longest = max(strlength(string(cb.TickLabels)));
+            gutter = max(140, 64 + ceil(double(longest) * double(cb.FontSize) * 0.9));
+            state.Axes.Units = 'pixels';
+            state.Axes.PositionConstraint = 'outerposition';
+            state.Axes.OuterPosition = [1, 28, max(80, bounds(3) - gutter), max(80, bounds(4) - 58)];
+            state.Layout.ColorbarPanel.Position = [max(1, bounds(3) - gutter + 1), 1, gutter, bounds(4)];
+            cb.Units = 'pixels';
+            cb.Location = 'manual';
+            cb.Position = [20, 36, 18, max(40, bounds(4) - 70)];
         end
 
         function height = applySourceSelectorLayout(layout, profile)

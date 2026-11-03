@@ -201,10 +201,33 @@ window = visualize_field("image_pred.npy", retained_dimensions=(1, 2, 3), extra_
 前导或内部单例维度在高维来源中明确固定为索引 1，不会把长度大于 1 的维度悄悄压缩掉。
 NPY 内存映射和 HDF5/Zarr 继续按所选子数组读取；内存/Torch 快照及压缩格式的原有加载开销仍然存在。
 
+## 色图选择：Slice 与三维等值面通用
+
+未指定 `colormap` 时默认 `turbo`，控制台提供“色图 (Colormap)”下拉框，优先列出 `jet`、`hot`、
+`viridis` 等常用项，也包含当前 Matplotlib 注册的其他色图（含 `_r` 反向色图）。
+尚未选择目标时控件禁用。选定色图后，二维图像、三维等值面与颜色栏立即同步更新。
+三维等值面按等值面数值映射颜色；透明度和光照仍会影响表面的最终观感。
+
+```shell
+python -m fieldviz image_pred.npy --colormap jet
+python -m fieldviz image_pred.npy --mode volume --colormap hot
+```
+
+```python
+window = visualize_field(array, colormap="jet")
+window = visualize_field(array, mode="isosurface", colormap="hot")
+```
+
+显式指定色图时按既有参数规则固定该设置，隐藏 GUI 选择器；省略时允许交互切换。
+换色只更新颜色查找表，不重新读取来源或计算等值面，保留颜色范围、索引、等值面值、透明度和视角。
+在同一窗口中切换绘图模式、目标变量、额外维度索引或刷新来源后，继续使用当前色图。
+色图决定“数值映射为什么颜色”，颜色栏上下限由 `color_limits` 或相应 GUI 控件独立控制。
+
 ## 已实现交互
 
 - 省略来源/变量时空窗口等待选择；没有目标时绘图控制禁用。
 - 高维实数来源先选择二维/三维子数组；额外维度索引输入/滑条自动更新画面。
+- 二维/三维共用的色图下拉框；切换时保留当前几何与视角。
 - 省略模式时可在窗口切换；二维目标自动约束为 Slice。
 - 切片维度、索引输入/滑条、全局/当前切片/自定义颜色栏上下限及粗调滑条。
 - 自动多层等值面的数量、值域百分比，以及指定单值的输入/滑条。

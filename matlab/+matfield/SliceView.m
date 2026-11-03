@@ -35,7 +35,7 @@ classdef SliceView
             mainGrid = shell.MainGrid;
             ax = shell.Axes;
             cb = shell.Colorbar;
-            controlPanel = shell.ControlPanel;
+            controlPanel = shell.ControlsParent;
             controlRow = shell.ControlPanelRow;
             controls = uigridlayout(controlPanel, [5, 14]);
             controls.RowHeight = {28, 34 * double(showModeControl), ...

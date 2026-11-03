@@ -23,7 +23,7 @@ def parser():
     result.add_argument("--iso-range", nargs=2, type=float, metavar=("LOW", "HIGH"))
     result.add_argument("--surface-alpha", type=float)
     result.add_argument("--max-render-size", type=int)
-    result.add_argument("--colormap", default="turbo")
+    result.add_argument("--colormap", help="固定色图名称，例如 jet、hot；省略时默认 turbo 并可在窗口选择")
     return result
 
 

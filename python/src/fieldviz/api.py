@@ -12,7 +12,7 @@ _windows = set()
 def visualize_field(source=None, *, field=None, namespace=None, mode=None, dimension=None,
                     index=None, color_limits=None, iso_values=None, num_isosurfaces=None,
                     iso_range=None, surface_alpha=None, max_render_size=None,
-                    colormap="turbo", show=True, retained_dimensions=None, extra_indices=None):
+                    colormap=None, show=True, retained_dimensions=None, extra_indices=None):
     """Create a nonblocking viewer and return its window.
 
     ``source`` is a file path, ndarray, dense Tensor, nested dict or DataSource.
@@ -36,8 +36,8 @@ def visualize_field(source=None, *, field=None, namespace=None, mode=None, dimen
                       iso_values=iso_values, num_isosurfaces=num_isosurfaces, iso_range=iso_range,
                       surface_alpha=surface_alpha, max_render_size=max_render_size, colormap=colormap)
     from matplotlib import colormaps
-    if colormap not in colormaps:
-        raise ValueError(f"未知颜色映射：{colormap}")
+    if options.colormap not in colormaps:
+        raise ValueError(f"未知色图：{options.colormap}")
     resolved = open_source(source, namespace=namespace) if source is not None or namespace is not None else None
     if resolved and not any(options.accepts(t) for t in resolved.list_targets()):
         # An empty namespace may be populated and refreshed after the viewer opens.

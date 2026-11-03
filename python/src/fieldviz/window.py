@@ -34,7 +34,8 @@ class ViewerWindow(QMainWindow):
         self._groups = {}
         self._volume_view = None
         self._subspace_busy = False
-        colors = (colormaps[options.colormap](np.linspace(0, 1, 256)) * 255).astype(np.uint8)
+        self.colormap = options.colormap
+        colors = self._colormap_colors(self.colormap)
         self.setWindowTitle("FieldViz · 二维/三维数组查看器")
         self.resize(1180, 900)
         self.setMinimumSize(680, 680)
@@ -156,6 +157,14 @@ class ViewerWindow(QMainWindow):
         self.mode_combo = self._combo([("三维等值面 (Volume)", "isosurface"), ("二维切片 (Slice)", "slice")])
         form.addRow(self.mode_combo)
         self.mode_combo.currentIndexChanged.connect(self._mode_changed)
+        form = self._group("colormap", "色图 (Colormap)")
+        common = ["turbo", "jet", "hot", "viridis", "plasma", "inferno", "magma", "cividis", "gray", "coolwarm"]
+        names = common + sorted(set(colormaps) - set(common))
+        self.colormap_combo = self._combo([(name, name) for name in names])
+        self.colormap_combo.setCurrentIndex(self.colormap_combo.findData(self.colormap))
+        self.colormap_combo.setToolTip("切片、等值面及颜色栏同步换色；保持数值范围和视角。")
+        self.colormap_combo.currentIndexChanged.connect(self._colormap_changed)
+        form.addRow(self.colormap_combo)
         form = self._group("dimension", "切片维度")
         self.dimension_combo = self._combo([(f"Dim {i}", i) for i in (1, 2, 3)])
         form.addRow(self.dimension_combo)
@@ -344,6 +353,7 @@ class ViewerWindow(QMainWindow):
         automatic = s is not None and s.iso_mode == "automatic"
         single = s is not None and s.iso_mode == "single"
         visibility = {
+            "colormap": not o.colormap_specified,
             "subspace": s is not None and s.source_handle.target.ndim > 3,
             "mode": o.mode is None and is_3d,
             "dimension": is_slice and is_3d and o.dimension is None,
@@ -358,7 +368,8 @@ class ViewerWindow(QMainWindow):
             "play": (is_slice and is_3d and o.index is None) or (is_volume and single),
         }
         for key, group in self._groups.items():
-            group.setVisible(visibility[key] if s else key in ("mode", "iso_mode", "count", "alpha"))
+            group.setVisible(visibility[key] if s else (
+                key in ("mode", "iso_mode", "count", "alpha") or key == "colormap" and not o.colormap_specified))
             group.setEnabled(key == "subspace" or not self._subspace_busy)
         if s:
             if s.source_handle.target.ndim > 3:
@@ -424,6 +435,23 @@ class ViewerWindow(QMainWindow):
         self.empty.setText("正在准备图像…")
         self._sync_controls()
         self._schedule_render()
+
+    @staticmethod
+    def _colormap_colors(name):
+        return (colormaps[name](np.linspace(0, 1, 256)) * 255).astype(np.uint8)
+
+    def _colormap_changed(self, _):
+        if self._syncing or self.state is None or self.options.colormap_specified:
+            return
+        name = self.colormap_combo.currentData()
+        if name == self.colormap:
+            return
+        colors = self._colormap_colors(name)
+        self.slice_view.set_colormap(colors)
+        self.colorbar.set_colors(colors)
+        if self._volume_view is not None:
+            self._volume_view.set_colormap(name)
+        self.colormap = name
 
     def _dimension_changed(self, _):
         if self._syncing or self.state is None:
@@ -543,7 +571,7 @@ class ViewerWindow(QMainWindow):
         else:
             mesh, sampled_shape = frame
             if self._volume_view is None:
-                self._volume_view = IsosurfaceView(self.options.colormap)
+                self._volume_view = IsosurfaceView(self.colormap)
                 self.stack.addWidget(self._volume_view)
             self._volume_view.display(mesh, s.handle.target.shape, display_range(s.bounds), s.alpha,
                                       self._identity, s.handle.target.axes)

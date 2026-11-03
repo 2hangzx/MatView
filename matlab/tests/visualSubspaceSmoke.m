@@ -26,8 +26,8 @@ function visualSubspaceSmoke
     canvas = getpixelposition(state.Layout.PlotCanvas);
     bar = state.Colorbar.Position;
     box = state.Axes.OuterPosition;
-    assert(bar(1) >= box(1) + box(3));
-    assert(bar(1) + bar(3) + 60 < canvas(3));
+    assert(state.Layout.ColorbarPanel.Position(1) >= box(1) + box(3));
+    assert(bar(1) + bar(3) + 60 < state.Layout.ColorbarPanel.Position(3));
     assert(bar(2) > 0 && bar(2) + bar(4) < canvas(4));
     fprintf('NARROW canvas=%s axes=%s colorbar=%s\n', mat2str(canvas), mat2str(box), mat2str(bar));
     fprintf('MATLAB_ND_VISUAL_SMOKE_OK\n');

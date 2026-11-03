@@ -195,7 +195,7 @@ function testSubspaceLayoutResize(testCase)
         testCase.verifyTrue(isgraphics(fig.UserData.Layout.Subspace.Panel));
         testCase.verifyEqual(numel(fig.UserData.MainGrid.RowHeight), 3);
         testCase.verifyLessThanOrEqual(fig.UserData.MainGrid.RowHeight{1}, 180);
-        testCase.verifyEqual(fig.UserData.Colorbar.Parent, fig.UserData.Layout.PlotCanvas);
+        testCase.verifyEqual(fig.UserData.Colorbar.Parent, fig.UserData.Layout.ColorbarPanel);
     end
 end
 

@@ -83,6 +83,18 @@ classdef Graphics
             colorbarHandle.FontSize = 11;
         end
 
+        function synchronizeColorbar(fig)
+            state = fig.UserData;
+            proxy = state.Layout.ColorbarAxes;
+            if matfield.Graphics.hasGraphics(proxy)
+                proxy.CLim = state.Axes.CLim;
+                map = colormap(state.Axes);
+                if ~isequal(colormap(proxy), map)
+                    colormap(proxy, map);
+                end
+            end
+        end
+
         function restoreAutomaticColorbarTicks(colorbarHandle)
             if matfield.Graphics.hasGraphics(colorbarHandle)
                 colorbarHandle.TickLabelsMode = 'auto';

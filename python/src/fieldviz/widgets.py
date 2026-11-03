@@ -125,6 +125,10 @@ class ColorBar(QWidget):
     def sizeHint(self):
         return QSize(self.minimumWidth(), 300)
 
+    def set_colors(self, colors):
+        self.colors = colors
+        self.update()
+
     def paintEvent(self, event):
         painter = QPainter(self)
         metrics = painter.fontMetrics()

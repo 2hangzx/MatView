@@ -50,7 +50,8 @@ function fig = visualizeMatField(varargin)
 %   Index             Positive integer slice index
 %   RetainedDimensions Increasing 2/3 original dimension numbers for N-D data
 %   ExtraIndices      N-by-2 [dimension index] pairs, both 1-based
-%   Colormap          MATLAB colormap name, default 'turbo'
+%   Colormap          MATLAB colormap name, e.g. 'jet'/'hot', default 'turbo'.
+%                     Omit to show the GUI selector in either plotting mode.
 %   ColorLimits       'global', 'slice', or numeric [low high]
 %   NumIsosurfaces    Integer in [1, 12], default 5
 %   IsoRange          Fractions [low high] in [0, 1], default [0.15 0.85]

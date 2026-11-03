@@ -46,7 +46,7 @@ classdef SelectionView
             ax = shell.Axes;
             ax.Visible = 'off';
             ax.Toolbar.Visible = 'off';
-            controlPanel = shell.ControlPanel;
+            controlPanel = shell.ControlsParent;
             switch opts.PlotType
                 case 'slice'
                     [controls, controlLayout] = matfield.SelectionView.createDisabledSliceControls(controlPanel, opts);

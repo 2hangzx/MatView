@@ -45,7 +45,7 @@ classdef VolumeView
             mainGrid = shell.MainGrid;
             ax = shell.Axes;
             cb = shell.Colorbar;
-            controlPanel = shell.ControlPanel;
+            controlPanel = shell.ControlsParent;
             controlRow = shell.ControlPanelRow;
             controls = uigridlayout(controlPanel, [5, 14]);
             controls.RowHeight = {28, 34 * double(showModeControl), ...
@@ -522,6 +522,7 @@ classdef VolumeView
                         'AmbientStrength', 0.28, ...
                         'DiffuseStrength', 0.72, ...
                         'SpecularStrength', 0.12);
+                    setappdata(surfacePatch, 'MatfieldIsoValue', level);
                     try
                         isonormals(coord1, coord2, coord3, sampledForPlot, surfacePatch);
                     catch

@@ -128,6 +128,28 @@ MAT、直接内存数组/嵌套标量结构体、Base Workspace 均支持此功�
 不承诺对任意嵌套 MAT 字段进行磁盘惰性读取。切换分量复用已经载入的原始数组，不更改来源数据或类型。
 MATLAB 版的文件入口仍为 MAT 文件；Python 的 `.npy/.pt` 文件支持不属于此次 MATLAB 升级。
 
+## 色图选择：二维与三维通用
+
+未显式指定 `Colormap` 时，默认 `turbo`，控制台提供“色图”下拉框，可选 `jet`、`hot`、`parula`、
+`gray` 等本机 MATLAB 可用的内置色图。尚未选择目标时控件禁用。
+二维图像、三维等值面和颜色栏同步换色；三维表面按等值面数值着色，透明度和光照继续影响最终观感。
+
+```matlab
+visualizeMatField(A, 'Colormap', 'jet')
+visualizeMatField(A, 'PlotType', 'volume', 'Colormap', 'hot')
+visualizeMatField('prediction.mat', 'A', 'PlotType', 'slice', 'Colormap', 'hot')
+```
+
+显式指定 `Colormap` 时按既有逐级规则固定该设置，隐藏对应下拉框；省略时允许交互选择。
+`Colormap` 同时适用于两种模式，无需固定 `PlotType`。未知名称在创建窗口前报错。
+换色直接更新图像色图和已有等值面 patch 的颜色，不重新加载数据、不重新计算等值面，保留
+切片索引、颜色栏范围、等值面值、透明度、播放状态和观察视角。
+在同一窗口中切换模式、变量或额外维度索引后，继续使用当前色图。
+`ColorLimits` 决定数值范围，`Colormap` 决定该范围对应的颜色，两者独立。
+
+升级后 35 项 MATLAB 测试全部通过，包含二维/三维换色、已有网格保持、视角/透明度/范围保持和显式参数固定。
+`addpath('tests'); visualColormapSmoke` 可导出 jet/hot 的二维、三维及窄窗口截图。
+
 ## 传参规范
 
 支持以下规范调用形式：

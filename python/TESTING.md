@@ -109,6 +109,15 @@ python tests/visual_subspace_smoke.py "D:/myDocuments/temp/image_pred.npy"
 
 截图仍写入被忽略的 `artifacts/`。此脚本要求一个四维且各维长度大于 1 的 NPY；其他高维布局由自动测试覆盖。
 
+## 色图交互升级验证（2026-11-03）
+
+升级后 83 项自动测试全部通过，静态检查通过。
+
+新增 `test_colormap.py` 验证默认/显式参数、空窗口禁用、CLI 参数、二维及三维着色与颜色栏一致，
+以及换色后图像对象、网格、视角、颜色范围、透明度和当前索引保持不变。
+同时验证高维分量和绘图模式切换后继续使用所选色图。
+`python tests/visual_colormap_smoke.py` 导出 jet/hot 的二维/三维及窄窗口截图到 `artifacts/`。
+
 ## 后续建议验证
 
 长期大数组播放的内存/驱动稳定性、多显示器缩放比例、Linux/macOS 图形环境、GPU Tensor 复制成本。

@@ -97,3 +97,7 @@ NPY/HDF5/Zarr 继续按索引读取；内存快照等需要完整载入的适配
 - 真体渲染、显式时间轴、坐标向量、数据导出均可后续加入，但不能根据 Dim1/2/3 自动猜测物理含义。
 
 建议阅读顺序：`api.py` → `core.py` → `sources/base.py` → `window.py` → `rendering.py`。
+
+色图状态保存在 `ViewerWindow.colormap`；`Options.colormap_specified` 区分默认值与显式固定。
+GUI 信号直接更新 `SliceView` 的图像 LUT、`IsosurfaceView` 已有 actor 的 lookup table，以及独立 `ColorBar`。
+换色不经过 `LatestJob`，不会提交等值面重算任务；后台正在计算的下一帧也使用当前色图。
