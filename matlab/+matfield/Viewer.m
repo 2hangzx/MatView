@@ -5,7 +5,6 @@ classdef Viewer
             if isempty(existingFig)
                 fig = uifigure('Name', figName, 'Position', defaultPosition, ...
                     'Color', [0.97, 0.97, 0.98], 'Visible', visible, ...
-                    'ToolBar', 'figure', ...
                     'CloseRequestFcn', @(source, event) matfield.Playback.closeViewerFigure(source, event));
             else
                 if ~isvalid(existingFig)
@@ -19,6 +18,9 @@ classdef Viewer
                 delete(fig.Children);
                 fig.Name = figName;
                 fig.Color = [0.97, 0.97, 0.98];
+            end
+            % UI figures gained the native figure toolbar in R2025a.
+            if ~isMATLABReleaseOlderThan('R2025a')
                 fig.ToolBar = 'figure';
             end
         end
