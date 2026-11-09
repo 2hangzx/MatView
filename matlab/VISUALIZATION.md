@@ -9,6 +9,9 @@
 实现已拆分到 `+matfield` 包；脚本职责、运行流程和模块依赖见
 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
 
+图片、GIF/MP4/AVI 播放序列和原始切片数据导出，使用窗口顶部“导出”菜单或 `exportMatField(fig, path, ...)`。
+图片包含图像、坐标轴、标题与完整颜色栏，不含控制台。格式、逐级启用规则与示例见 [EXPORT.md](EXPORT.md)。
+
 ## 目标变量规则
 
 脚本只把以下数据视为可绘制目标：

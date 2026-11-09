@@ -67,6 +67,8 @@ function fig = visualizeMatField(varargin)
 %   Volume mode provides rotate, pan, zoom-in, zoom-out and restore-view
 %   tools in the UIAxes hover toolbar. Default 3-D mouse interactions are
 %   also enabled.
+%   Use the Export menu or exportMatField(fig, 'plot.png') for plot-only
+%   images, GIF/MP4 playback sequences and raw slice MAT/CSV data.
 
     sourceInputName = '';
     if nargin >= 1

@@ -94,7 +94,18 @@ NPY/HDF5/Zarr 继续按索引读取；内存快照等需要完整载入的适配
 - 新文件格式：实现 `DataSource.list_targets/open_target`，在 `sources/__init__.py` 中注册，并添加方向/类型测试。
 - 新渲染算法：在 `rendering.py` 添加准备函数，在 `views.py` 加持久视图；不要向数据适配器加入 GUI 代码。
 - 新参数：先在 `Options` 明确依赖与互斥规则，再添加 UI 分支、API/CLI 参数及测试。
-- 真体渲染、显式时间轴、坐标向量、数据导出均可后续加入，但不能根据 Dim1/2/3 自动猜测物理含义。
+- 真体渲染、显式时间轴、坐标向量可后续加入，但不能根据 Dim1/2/3 自动猜测物理含义。
+
+## 导出模块
+
+`export_controls.py` 为菜单栏与二维/三维右键菜单提供统一动作、分辨率/帧数对话框及取消进度。
+`window.py` 的三个 `export_*` 方法等待最新帧、临时暂停播放并管理导出生命周期。
+`exporting.py` 只读取 `ViewState` 的浅快照，复用 `prepare_slice/prepare_mesh`，按帧推进副本。
+二维由 Matplotlib Agg 重新排版，三维由独立 PyVista 离屏渲染器复用维度框与相机，再与标题/颜色栏合成。
+它不截取窗口，既不带控件，也不改动 GUI 图元。CubeAxesActor 创建前必须先安装快照相机，才能正确定位刻度文字。
+离屏初始化经过 `show()`；Matplotlib 使用独立 `Figure`，不改变应用全局后端。Qt/VTK 操作仍由主线程负责。
+GIF/MP4 通过 ImageIO 逐帧写入，避免把整段动画累积在内存；先写同目录临时文件，成功后替换目标。
+NPZ/MAT 内嵌元信息，NPY/CSV 使用 JSON 伴随文件；导出保持原数组切片顺序，显示转置不会进入数据文件。
 
 建议阅读顺序：`api.py` → `core.py` → `sources/base.py` → `window.py` → `rendering.py`。
 

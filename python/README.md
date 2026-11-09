@@ -236,12 +236,56 @@ window = visualize_field(array, mode="isosurface", colormap="hot")
 - 全局与切片有限值统计、颜色栏、三维旋转/平移/缩放及复位。
 - 三个独立布局区域；控制组随宽度换列、短窗口滚动，颜色栏预留实际数字宽度。
 
+## 图片、播放动画与切片数据导出
+
+窗口顶部的“导出”菜单，以及二维/三维绘图区右键菜单，使用同一套导出功能。
+图片和动画默认保留绘图区的全部部件。可分别勾选坐标轴、轴标签、轴刻度、标题、颜色栏、颜色栏标签和颜色栏刻度，图像主体始终保留。
+标签和刻度依赖对应的坐标轴或颜色栏。关闭上级会禁用子项，重新开启时恢复原有勾选。
+设置中可指定宽高像素。二维导出沿用手动平移或缩放后的观察范围，默认视图适配导出画布。
+三维导出保留旋转角度，将完整坐标框居中，并在当前缩放会导致裁切时适当缩小。
+导出使用独立渲染器，不推进窗口索引，也不修改原始数据；字号和边距可能与屏幕显示略有不同。
+
+| 内容 | 格式 | 启用条件 |
+|---|---|---|
+| 当前图片 | PNG / JPEG / TIFF | 当前目标完成绘图 |
+| 播放序列 | GIF / MP4 | 三维数组的 Slice，或指定单层等值面 |
+| 当前切片数据 | NPZ / NPY / MAT / CSV | Slice，二维数组也可用 |
+
+GIF 无限循环；MP4 保存有限序列。第一帧为当前值，之后按现有播放规则推进：切片 +1，单值等值面 +全局值域的 1%，到末尾循环。
+可指定帧数和帧率；默认一个切片维度长度，或 101 个单值帧，默认帧率取当前播放间隔的倒数（0.1–60 fps）。
+导出逐帧计算并写入，不因机器较慢丢帧；进度窗口可取消，取消后已有目标文件保持不变。
+自动多层模式没有天然的播放变量，因此禁用动画项；需要先切到“指定单值”。
+显式固定索引/单个等值面仍可导出独立扫描序列，不会解锁或修改原窗口的固定参数。
+
+```python
+window = visualize_field(array, mode="slice")
+window.export_image("plot.png", width=1600, height=1200)
+window.export_animation("scan.gif", frames=60, fps=10, width=1280, height=960)
+window.export_animation("scan.mp4", frames=60, fps=10)
+window.export_slice_data("slice.npz")
+```
+
+```shell
+python -m fieldviz image_pred.npy --mode slice --dimension 3 --index 20 --colormap jet --export-image plot.png --export-size 1600 1200
+python -m fieldviz image_pred.npy --mode slice --export-animation scan.mp4 --frames 60 --fps 10
+python -m fieldviz image_pred.npy --mode slice --export-slice-data slice.npz
+```
+
+命令行导出完成后退出；多变量文件需要 `--field` 明确选中目标。无可见窗口时仍需要可用的 Qt/VTK 图形环境。
+MP4 使用随 `imageio[ffmpeg]` 安装的 FFmpeg，宽高须为偶数；更新环境运行 `python -m pip install -r requirements.txt`，Conda 环境也使用该依赖文件。
+GIF 时间间隔以 10 ms 为单位，色彩量化为最多 256 色；MP4 采用有损压缩。科研数值分析应使用切片数据文件。
+
+切片数据保持**原数组维度顺序和原始数值**，不执行显示用转置、色图映射或归一化。
+NPZ 的 `data` 和 MAT 的 `data` 保留 dtype，`metadata`（NPZ 的 JSON 字符串）/`metadata_json`（MAT）记录原始形状、保留维度、额外索引、切片维度/索引及色图范围。
+NPY/CSV 附带同名 `.npy.json` / `.csv.json` 元信息；CSV 为文本，不自带 dtype，读取时应依据元信息指定类型。
+`data_dimensions` 按数据行、列对应原数组维度；第一维在查看器中沿水平方向显示。
+
 ## 边界与安全
 
 - 全局统计遍历当前选中的完整二维/三维子数组，等值面默认每轴最多约 96 个采样点；细小结构可能被采样遗漏。
   调高 `max_render_size` 可以提高质量，但会增加计算量与内存。
 - 常量场、极值或某些非有限值区域可能没有等值面，界面会明确提示；颜色栏仍存在。
-- 不覆盖或写回来源文件。NumPy 禁用 pickle；Torch 不回退到不受限的反序列化。
+- 读取和交互不会写回来源文件，导出仅写入用户指定的目标路径。NumPy 禁用 pickle；Torch 不回退到不受限的反序列化。
   这些措施不等于安全沙箱：仍只应打开可信文件，超大文件可能消耗大量资源。
 - 展示标量采用 Python 双精度；极大整数（超出 `2**53`）或极端动态范围可能无法逐个位精确标注，原数据保持不变。
 - 不自动转换整个数据集、不提供跨进程 Workspace、不支持真体渲染/时间轴语义推断。

@@ -120,5 +120,9 @@ python tests/visual_subspace_smoke.py "D:/myDocuments/temp/image_pred.npy"
 
 ## 后续建议验证
 
+导出升级后全量 94 项测试通过，包含新增的 11 项导出测试：图片精确尺寸、颜色栏像素、四种数据格式的数值/类型/高维选择元信息、
+GIF/MP4 实际帧数和尺寸、GIF 帧率与无限循环、取消后的目标保护、相机/索引不变、空状态/二维/自动多层分支限制及命令行导出。
+`python tests/visual_export_smoke.py` 生成二维/三维 PNG、GIF、NPZ 与窗口截图，写入忽略的 `artifacts/export/`。
+
 长期大数组播放的内存/驱动稳定性、多显示器缩放比例、Linux/macOS 图形环境、GPU Tensor 复制成本。
 不能把已有自动测试等同于所有真实数据和所有设备都经过验证。

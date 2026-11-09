@@ -475,6 +475,7 @@ classdef SliceView
             end
             fig.UserData = state;
             matfield.Layout.placeColorbar(fig);
+            matfield.Export.updateMenu(fig);
             drawnow limitrate nocallbacks
         end
 

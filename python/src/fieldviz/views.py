@@ -5,6 +5,19 @@ from PySide6.QtCore import QRectF
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
 
 
+def show_volume_bounds(plotter, bounds, dimensions, *, labels=True, ticks=True):
+    titles = [f"Dim {dimension} index" if labels else "" for dimension in dimensions]
+    actor = plotter.show_bounds(bounds=bounds, xtitle=titles[0], ytitle=titles[1], ztitle=titles[2],
+                                show_xlabels=ticks, show_ylabels=ticks, show_zlabels=ticks,
+                                color="#313844", font_size=13, bold=False, all_edges=True,
+                                location="outer", use_2d=False, use_3d_text=False,
+                                n_xlabels=3, n_ylabels=3, n_zlabels=3, render=False)
+    if not ticks:
+        actor.SetXAxisTickVisibility(False)
+        actor.SetYAxisTickVisibility(False)
+        actor.SetZAxisTickVisibility(False)
+
+
 class SliceView(pg.PlotWidget):
     def __init__(self, colors):
         super().__init__(background="w")
@@ -19,6 +32,11 @@ class SliceView(pg.PlotWidget):
             self.getAxis(name).setTextPen("#313844")
             self.getAxis(name).setPen("#64748b")
         self._identity = None
+        self.user_navigated = False
+        self.getViewBox().sigRangeChangedManually.connect(self._navigated)
+
+    def _navigated(self, _):
+        self.user_navigated = True
 
     def display(self, frame, identity):
         self.image.setImage(frame.data, autoLevels=False, levels=frame.limits)
@@ -27,10 +45,12 @@ class SliceView(pg.PlotWidget):
         self.setLabel("left", f"Dim {frame.axes[1]} index")
         if identity != self._identity:
             self.getViewBox().autoRange()
+            self.user_navigated = False
             self._identity = identity
 
     def reset_view(self):
         self.getViewBox().autoRange()
+        self.user_navigated = False
 
     def set_colormap(self, colors):
         self.image.setLookupTable(np.asarray(colors, dtype=np.uint8))
@@ -80,12 +100,7 @@ class IsosurfaceView(QWidget):
                 opacity=alpha, show_scalar_bar=False, reset_camera=False, render=False,
                 smooth_shading=True)
         if reset:
-            self.plotter.show_bounds(bounds=self._bounds, xtitle=f"Dim {dimensions[0]} index",
-                                     ytitle=f"Dim {dimensions[1]} index", ztitle=f"Dim {dimensions[2]} index",
-                                     color="#313844", font_size=13,
-                                     bold=False, all_edges=True, location="outer", use_2d=False,
-                                     use_3d_text=False,
-                                     n_xlabels=3, n_ylabels=3, n_zlabels=3, render=False)
+            show_volume_bounds(self.plotter, self._bounds, dimensions)
             self.reset_view()
         self.plotter.render()
 

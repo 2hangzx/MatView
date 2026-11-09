@@ -314,6 +314,7 @@ classdef Viewer
         end
 
         function wireSourceCallbacks(fig, shell)
+            matfield.Export.wire(fig);
             matfield.Palette.wire(fig, shell.PaletteLayout);
             matfield.Subspace.wire(fig, shell.SubspaceLayout);
             if matfield.Graphics.hasGraphics(shell.SourceTypeDropDown)

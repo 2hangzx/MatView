@@ -16,6 +16,31 @@ visualize_field(
 返回 `ViewerWindow`，不阻塞。普通脚本最后调用 `run()`。
 只能在主线程创建窗口；`show=False` 可用于自动测试，但依然需要 Qt/图形环境。
 
+### 窗口导出方法
+
+```python
+window.export_image(path, *, width=1600, height=1200, components=None)
+window.export_animation(path, *, width=1280, height=960, frames=None, fps=None, progress=None, components=None)
+window.export_slice_data(path)
+window.wait_until_ready(timeout=60)
+```
+
+路径允许位置传值，其余配置均为关键字。方法等待当前请求的画面完成，成功返回 `Path`；错误以异常返回。
+必须在创建窗口的主线程调用。图片和动画始终保留图像主体，`components=None` 默认保留全部可选部件，`components=[]` 只保留主体。
+支持 `axes`、`axis_labels`、`axis_ticks`、`title`、`colorbar`、`colorbar_label`、`colorbar_ticks`。
+标签指坐标轴名称或颜色栏的 `Value`，刻度包含刻度线和数字。子项只在其上级也被选中时生效。
+宽 320–8192、高 240–8192 像素，总量不超过 3200 万像素；MP4 两边必须为偶数。
+动画只支持三维 Slice 或单值等值面，帧数为 1–10000、帧率为 0.1–60。
+默认帧数为当前切片维度长度，或 101 个单值帧；`fps=None` 使用当前播放间隔的倒数。
+从当前值开始并按原播放步长循环扫描，不改变窗口索引/数值/相机；显式固定索引不妨碍导出独立扫描序列。
+`progress(done,total)` 在每一帧前和结束时调用；返回 `False` 抛出 `fieldviz.exporting.ExportCancelled`，已有目标不被覆盖。
+GIF 无限循环、MP4 有限播放；原始切片数据支持 NPZ/NPY/MAT/CSV，格式与元信息详见 README。
+
+CLI 增加 `--export-image PATH`、`--export-animation PATH`、`--export-slice-data PATH`，可组合执行后退出。
+`--export-size WIDTH HEIGHT` 设置图片/动画尺寸，`--frames` 和 `--fps` 只能与 `--export-animation` 一起使用。
+`--export-components` 后可列出保留的部件，例如 `--export-components axes axis_ticks`。单独传该标志可仅导出主体。
+导出时必须已确定目标（直接 NPY 自动选中，多变量来源使用 `--field`）。
+
 ### 统一原则
 
 1. 只有来源 `source` 允许位置传值，也接受 `source=...`；其余全部关键字传值，没有混合短写法。

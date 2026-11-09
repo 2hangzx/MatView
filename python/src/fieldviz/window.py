@@ -92,6 +92,9 @@ class ViewerWindow(QMainWindow):
         self.subspace_timer.setSingleShot(True)
         self.subspace_timer.setInterval(60)
         self.subspace_timer.timeout.connect(self._select_subspace)
+        from .export_controls import ExportControls
+        self.export_controls = ExportControls(self)
+        self.load_job.busy_changed.connect(lambda _: self.export_controls.update())
         self._populate_targets()
         if initial_state is not None:
             self._activate(initial_state)
@@ -400,6 +403,7 @@ class ViewerWindow(QMainWindow):
             self.play_button.setEnabled(is_slice or s.bounds[0] < s.bounds[1])
         self.controls.reflow()
         self._syncing = False
+        self.export_controls.update()
 
     def _subspace_changed(self, dimensions, indices):
         if self.state is None:
@@ -530,6 +534,7 @@ class ViewerWindow(QMainWindow):
         # Throttle, not debounce: continuous dragging still gets periodic latest updates.
         if not self.render_timer.isActive():
             self.render_timer.start()
+        self.export_controls.update()
 
     def _render(self):
         s = self.state
@@ -573,6 +578,7 @@ class ViewerWindow(QMainWindow):
             if self._volume_view is None:
                 self._volume_view = IsosurfaceView(self.colormap)
                 self.stack.addWidget(self._volume_view)
+                self.export_controls.attach_context_menu(self._volume_view.plotter.interactor)
             self._volume_view.display(mesh, s.handle.target.shape, display_range(s.bounds), s.alpha,
                                       self._identity, s.handle.target.axes)
             self.stack.setCurrentWidget(self._volume_view)
@@ -589,6 +595,7 @@ class ViewerWindow(QMainWindow):
     def _render_busy(self, busy):
         if busy:
             self.statusBar().showMessage("正在计算最新画面…")
+        self.export_controls.update()
 
     def _error(self, message):
         self.stop_playback()
@@ -614,7 +621,59 @@ class ViewerWindow(QMainWindow):
         self._sync_controls()
         self._schedule_render()
 
+    def wait_until_ready(self, timeout=60):
+        """Wait for the latest requested target/frame, including nonblocking API startup."""
+        from time import monotonic, sleep
+        from PySide6.QtWidgets import QApplication
+        deadline = monotonic() + timeout
+        while (self.load_job.busy or self.render_job.busy or self.render_timer.isActive()
+               or self.subspace_timer.isActive() or self._subspace_busy):
+            if monotonic() > deadline:
+                raise TimeoutError("等待当前图像完成超时，请计算完成后重新导出。")
+            QApplication.processEvents()
+            sleep(.005)
+        if self._closed or self.state is None or self.stack.currentWidget() is self.empty:
+            raise ValueError("请先选择目标变量并完成绘图，再进行导出。")
+
+    def _export(self, function, path, **kwargs):
+        if getattr(self, "_exporting", False):
+            raise RuntimeError("已有导出任务正在进行。")
+        was_playing = self.play_timer.isActive()
+        self.stop_playback()
+        try:
+            self.wait_until_ready()
+            self._exporting = True
+            self.centralWidget().setEnabled(False)
+            self.export_controls.update()
+            return function(self, path, **kwargs)
+        finally:
+            self._exporting = False
+            self.centralWidget().setEnabled(True)
+            self.export_controls.update()
+            if was_playing and not self._closed:
+                self._toggle_play()
+
+    def export_image(self, path, *, width=1600, height=1200, components=None):
+        """Export the plot with optional decorations selected by components."""
+        from .exporting import export_image
+        return self._export(export_image, path, width=width, height=height, components=components)
+
+    def export_animation(self, path, *, width=1280, height=960, frames=None, fps=None, progress=None,
+                         components=None):
+        """Export a finite playback sequence starting at the current value, without advancing the UI."""
+        from .exporting import export_animation
+        return self._export(export_animation, path, width=width, height=height, frames=frames, fps=fps,
+                            progress=progress, components=components)
+
+    def export_slice_data(self, path):
+        """Write source-order raw slice values and selection metadata."""
+        from .exporting import export_slice_data
+        return self._export(lambda window, output: export_slice_data(window.state, window.colormap, output), path)
+
     def closeEvent(self, event):
+        if getattr(self, "_exporting", False):
+            event.ignore()
+            return
         self._closed = True
         self.stop_playback()
         self.render_timer.stop()

@@ -74,6 +74,9 @@ classdef Playback
             if ~isvalid(fig)
                 return
             end
+            if isappdata(fig, 'MatfieldExporting') && getappdata(fig, 'MatfieldExporting')
+                return
+            end
             matfield.Playback.stopViewerPlayback(fig, true);
             delete(fig);
         end

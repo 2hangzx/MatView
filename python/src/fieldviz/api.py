@@ -23,6 +23,8 @@ def visualize_field(source=None, *, field=None, namespace=None, mode=None, dimen
     relevant UI controls. Use ``run()`` in a standalone script to run Qt.
     N-D arrays select a 2-D/3-D subarray via ``retained_dimensions`` and
     ``extra_indices={original_dimension: one_based_index}`` before plotting.
+    The returned window provides ``export_image``, ``export_animation`` and
+    ``export_slice_data`` methods; these exclude controls and preserve UI state.
     """
     global _application
     if current_thread() is not main_thread():

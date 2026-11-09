@@ -5,19 +5,21 @@
 `visualizeMatField` 用于从 MAT 文件、MATLAB Base Workspace 或调用时直接传入的内存值中
 发现并加载符合规则的实数数值二维/三维数组，以二维切片或三维等值面方式交互显示。
 高维数值来源先经 `Subspace` 提取二维/三维子数组，渲染器仍只处理二维/三维标量场。
-对外只有 `visualizeMatField.m` 一个公共入口；实现代码位于 `+matfield` MATLAB 包中。
+`visualizeMatField.m` 是查看器主入口，`exportMatField.m` 是可选导出入口；实现代码位于 `+matfield` MATLAB 包中。
 
 ## 2. 目录与模块
 
 ```text
 SwirlFlame/matlab/
 ├─ visualizeMatField.m          公共入口、帮助文本和最高层流程
+├─ exportMatField.m             图片、播放序列和原始切片的公共导出入口
 ├─ +matfield/                   内部实现包，不作为独立路径加入 MATLAB path
 │  ├─ Input.m                   位置参数/Name-Value 解析与依赖校验
 │  ├─ Data.m                    三种数据源的统一调度接口
 │  ├─ FieldRules.m              目标数组分类、嵌套遍历和公共数值校验
 │  ├─ Subspace.m                高维选择规则、额外维度控件、子数组提取与更新
 │  ├─ Palette.m                 共享色图选择、校验及已有表面换色
+│  ├─ Export.m                  导出菜单、独立渲染、动画写入与元信息
 │  ├─ MatSource.m               MAT 路径解析、变量发现和按目标加载
 │  ├─ WorkspaceSource.m         Base Workspace 枚举、读取和刷新
 │  ├─ MemorySource.m            直接数组/标量结构体的快照发现和读取
@@ -69,6 +71,10 @@ visualizeMatField
 - 视图把数据源、变量、模式和 MAT 路径控件的事件交给 `Viewer`；`Viewer` 根据结果重新建立
   对应视图。这是控制器与视图之间的事件回路，不是数据层的循环依赖。
 - `Playback` 只管理公共 timer 状态；具体“下一帧是什么”分别由 Slice/Volume 模块决定。
+- `Export` 从 `fig.UserData` 读取快照，复制绘图区到独立 figure，重建颜色栏；不复制控制台，不推进原窗口状态。
+  Volume 动画复用 `VolumeView.drawIsosurfaces`，Slice 保持相同切片及显示转置规则。
+  `exportMatField` 与菜单走同一导出流程；GIF/VideoWriter 逐帧写入临时文件，全部成功后替换目标。
+  `testExport.m` 和 `visualExportSmoke.m` 分别提供文件读回回归测试和实际导出图的视觉检查。用法见 `EXPORT.md`。
 
 ## 4. 典型运行流程
 

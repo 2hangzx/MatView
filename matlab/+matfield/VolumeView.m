@@ -505,31 +505,8 @@ classdef VolumeView
                 sampledForPlot = permute(sampled, [2, 1, 3]);
                 [coord1, coord2, coord3] = meshgrid( ...
                     dim1Indices, dim2Indices, dim3Indices);
-                map = colormap(state.Axes);
-                patches = gobjects(0);
-        
-                for level = levels
-                    facesAndVertices = isosurface(coord1, coord2, coord3, sampledForPlot, level);
-                    if isempty(facesAndVertices.vertices)
-                        continue
-                    end
-                    colorPosition = (level - state.ColorLimits(1)) / diff(state.ColorLimits);
-                    colorIndex = 1 + round(max(0, min(1, colorPosition)) * (size(map, 1) - 1));
-                    surfacePatch = patch(state.Axes, facesAndVertices, ...
-                        'FaceColor', map(colorIndex, :), ...
-                        'EdgeColor', 'none', ...
-                        'FaceAlpha', surfaceAlpha, ...
-                        'AmbientStrength', 0.28, ...
-                        'DiffuseStrength', 0.72, ...
-                        'SpecularStrength', 0.12);
-                    setappdata(surfacePatch, 'MatfieldIsoValue', level);
-                    try
-                        isonormals(coord1, coord2, coord3, sampledForPlot, surfacePatch);
-                    catch
-                        % Faceted normals are still a valid fallback for unusual data.
-                    end
-                    patches(end + 1) = surfacePatch; %#ok<AGROW>
-                end
+                patches = matfield.VolumeView.drawIsosurfaces(state.Axes, ...
+                    coord1, coord2, coord3, sampledForPlot, levels, state.ColorLimits, surfaceAlpha);
             end
         
             hold(state.Axes, 'off');
@@ -581,6 +558,29 @@ classdef VolumeView
             drawnow
             matfield.Graphics.refreshColorbarPresentation(state.Colorbar);
             matfield.Layout.placeColorbar(fig);
+            matfield.Export.updateMenu(fig);
+        end
+
+        function patches = drawIsosurfaces(ax, coord1, coord2, coord3, sampled, levels, limits, alpha)
+            % Shared by the live viewer and its independent export renderer.
+            map = colormap(ax);
+            patches = gobjects(0);
+            for level = levels
+                facesAndVertices = isosurface(coord1, coord2, coord3, sampled, level);
+                if isempty(facesAndVertices.vertices), continue; end
+                position = (level - limits(1)) / diff(limits);
+                colorIndex = 1 + round(max(0, min(1, position)) * (size(map, 1) - 1));
+                surface = patch(ax, facesAndVertices, 'FaceColor', map(colorIndex, :), ...
+                    'EdgeColor', 'none', 'FaceAlpha', alpha, 'AmbientStrength', 0.28, ...
+                    'DiffuseStrength', 0.72, 'SpecularStrength', 0.12);
+                setappdata(surface, 'MatfieldIsoValue', level);
+                try
+                    isonormals(coord1, coord2, coord3, sampled, surface);
+                catch
+                    % Faceted normals remain valid for unusual data.
+                end
+                patches(end + 1) = surface; %#ok<AGROW>
+            end
         end
 
         function state = ensureVolumeInteractivity(state)
